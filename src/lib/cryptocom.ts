@@ -55,19 +55,22 @@ export async function getTickers(): Promise<Record<string, Ticker>> {
 
 const STABLE = new Set(['USDT', 'USDC', 'DAI', 'FDUSD', 'PYUSD', 'USDE', 'TUSD', 'USDS', 'USD1', 'RLUSD', 'EUR', 'EURC', 'GBP', 'PAXG', 'XAUT', 'WBTC', 'WETH', 'STETH', 'CBBTC']);
 
-/** The most-traded spot coins on Crypto.com right now, by 24h USD volume (stablecoins, fiat and wrapped tokens left out). */
+/** The most-traded coins on Crypto.com right now, by 24h USD volume across spot and perpetuals
+ *  (Crypto.com spot volume is thin, most activity is in perps). Only coins with a spot USD/USDT pair are kept,
+ *  since candles come from spot. Stablecoins, fiat and wrapped tokens are left out. */
 export async function topCoinsByVolume(n: number, minUsd = 1_000_000): Promise<string[]> {
   const res = await call('get-tickers', {});
-  const vol = new Map<string, number>();
+  const vol = new Map<string, number>(), spot = new Set<string>();
   for (const x of ((res.data as RawTicker[]) || [])) {
-    const m = /^([A-Z0-9]+?)_?(USDT|USD)$/.exec(String(x.i).toUpperCase()); // spot only: perps carry a -PERP suffix
-    if (!m || STABLE.has(m[1])) continue;
+    const name = String(x.i).toUpperCase();
+    const sp = /^([A-Z0-9]+?)_?(USDT|USD)$/.exec(name), pp = /^([A-Z0-9]+?)USD-PERP$/.exec(name);
+    const base = sp?.[1] ?? pp?.[1];
+    if (!base || STABLE.has(base)) continue;
+    if (sp) spot.add(base);
     const v = Number(x.vv);
-    if (Number.isFinite(v)) vol.set(m[1], (vol.get(m[1]) ?? 0) + v);
+    if (Number.isFinite(v)) vol.set(base, (vol.get(base) ?? 0) + v);
   }
-  const rows = (res.data as RawTicker[]) || [];
-  const ranked = [...vol].sort((a, b) => b[1] - a[1]);
-  if (process.env.UNIVERSE_DEBUG) console.log('tickers', rows.length, 'spot coins', vol.size, 'sample', rows.slice(0, 5).map(r => r.i).join(','),
-    'top', ranked.slice(0, 5).map(([s, v]) => `${s}:${Math.round(v)}`).join(','), '#100 vol', Math.round(ranked[99]?.[1] ?? 0));
-  return ranked.filter(([, v]) => v >= minUsd).slice(0, n).map(([s]) => s);
+  const ranked = [...vol].filter(([b]) => spot.has(b)).sort((a, b) => b[1] - a[1]);
+  if (process.env.UNIVERSE_DEBUG) console.log('universe:', ranked.filter(([, v]) => v >= minUsd).length, 'coins over $1M/day; #100 vol', Math.round(ranked[99]?.[1] ?? 0));
+  return ranked.filter(([, v]) => v >= minUsd).slice(0, n).map(([b]) => b);
 }
