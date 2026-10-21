@@ -46,13 +46,23 @@ export async function sendTelegram(text: string): Promise<{ sent: number }> {
   const owner = process.env.TELEGRAM_CHAT_ID;
   if (!process.env.TELEGRAM_BOT_TOKEN || !owner) throw new Error('TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are not set');
   const subs = await syncSubscribers().catch(() => [] as number[]);
-  const body = (chat: string | number) => ({ chat_id: chat, text: text.slice(0, 4000), disable_web_page_preview: true });
-  const r = await tg('sendMessage', body(owner));
+  // Telegram caps a message at 4096 chars: split long alert batches on line breaks
+  const parts: string[] = [];
+  for (const line of text.split('\n')) {
+    const cur = parts[parts.length - 1];
+    if (cur !== undefined && cur.length + line.length + 1 <= 3900) parts[parts.length - 1] = cur + '\n' + line;
+    else parts.push(line.slice(0, 3900));
+  }
+  const send = async (chat: string | number) => {
+    for (const p of parts) { const x = await tg('sendMessage', { chat_id: chat, text: p, disable_web_page_preview: true }); if (!x.ok) return x; }
+    return { ok: true, status: 200 };
+  };
+  const r = await send(owner);
   if (!r.ok) throw new Error(`Telegram HTTP ${r.status}`);
   let sent = 1; const gone: number[] = [];
   for (const id of subs) {
     if (String(id) === owner.trim()) continue;
-    const x = await tg('sendMessage', body(id));
+    const x = await send(id);
     if (x.ok) sent++; else if (x.status === 403 || x.status === 400) gone.push(id);
   }
   if (gone.length) {

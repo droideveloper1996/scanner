@@ -52,3 +52,18 @@ export async function getTickers(): Promise<Record<string, Ticker>> {
   }
   return out;
 }
+
+const STABLE = new Set(['USDT', 'USDC', 'DAI', 'FDUSD', 'PYUSD', 'USDE', 'TUSD', 'USDS', 'USD1', 'RLUSD', 'EUR', 'EURC', 'GBP', 'PAXG', 'XAUT', 'WBTC', 'WETH', 'STETH', 'CBBTC']);
+
+/** The most-traded spot coins on Crypto.com right now, by 24h USD volume (stablecoins, fiat and wrapped tokens left out). */
+export async function topCoinsByVolume(n: number, minUsd = 1_000_000): Promise<string[]> {
+  const res = await call('get-tickers', {});
+  const vol = new Map<string, number>();
+  for (const x of ((res.data as RawTicker[]) || [])) {
+    const m = /^([A-Z0-9]+?)_?(USDT|USD)$/.exec(String(x.i).toUpperCase()); // spot only: perps carry a -PERP suffix
+    if (!m || STABLE.has(m[1])) continue;
+    const v = Number(x.vv);
+    if (Number.isFinite(v)) vol.set(m[1], (vol.get(m[1]) ?? 0) + v);
+  }
+  return [...vol].filter(([, v]) => v >= minUsd).sort((a, b) => b[1] - a[1]).slice(0, n).map(([s]) => s);
+}

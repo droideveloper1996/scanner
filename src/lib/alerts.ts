@@ -1,8 +1,8 @@
 import type { Bar } from './types';
 import { tfDef } from './types';
 import { analyse } from './signal';
-import { getCandlesFor, UpstreamError } from './cryptocom';
-import { alertCoins } from './config';
+import { getCandlesFor, topCoinsByVolume, UpstreamError } from './cryptocom';
+import { alertCoins, alertTop } from './config';
 import { getStore } from './store';
 import { sendTelegram, telegramConfigured } from './telegram';
 
@@ -79,7 +79,9 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   const store = getStore();
   const state = (await store.get<AlertState>(STATE_KEY)) ?? emptyState();
   const seeding = state.checked == null;      // first ever run: record labels, do not flood
-  const coins = alertCoins();
+  let coins = alertCoins();
+  const top = alertTop();
+  if (top) coins = [...new Set([...coins, ...(await topCoinsByVolume(top).catch(() => [] as string[]))])];
   const skipped: string[] = [];
   const found: AlertRec[] = [];
   const labels: Record<string, string> = {};
@@ -88,13 +90,14 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   const freshBreaks: NonNullable<ReturnType<typeof breakCheck>>[] = [];
   const at = new Date(now).toISOString();
 
-  await pool(coins, 6, async sym => {
+  await pool(coins, 10, async sym => {
     try {
       const [h1, m15] = await Promise.all([getCandlesFor(sym, '1h', 300), getCandlesFor(sym, '15m', 100)]);
       const s = strongCheck(sym, h1.bars, now);
       if (s) {
         labels[sym] = s.label;
-        if (s.label.startsWith('Strong') && s.label !== state.last[sym] && !seeding)
+        // a coin seen for the first time (e.g. new in the top list) only records its label, so it does not alert on arrival
+        if (s.label.startsWith('Strong') && s.label !== state.last[sym] && !seeding && sym in state.last)
           found.push({ at, sym, kind: 'signal', text: strongText(s), delivered: false });
       } else skipped.push(`${sym}: too few 1h candles`);
       bars15[sym] = m15.bars;                       // includes the forming candle (pump book exits use its latest price)

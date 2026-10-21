@@ -8,9 +8,11 @@ export const CATS = [
 
 export const DEFAULT_ALERT_COINS = ['BTC', 'ETH', 'SOL', 'XRP', 'HYPE', 'DOGE', 'PEPE', 'BONK', 'WIF', 'TRUMP', 'LINK', 'AAVE', 'ENA', 'SUI'];
 
-/** Coins the alert job watches. Set ALERT_COINS="BTC,ETH,DOGE" to change. */
+/** Coins the alert job watches. ALERT_COINS="BTC,ETH,DOGE" fixes the list; otherwise the scanner watches
+ *  the default coins plus the top ALERT_TOP (default 100) coins by 24h volume, refreshed every run. */
 export function alertCoins(): string[] {
   const env = process.env.ALERT_COINS;
   const list = env ? env.split(',').map(s => s.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean) : DEFAULT_ALERT_COINS;
-  return [...new Set(list)].slice(0, 40);
+  return [...new Set(list)].slice(0, 150);
 }
+export const alertTop = () => (process.env.ALERT_COINS ? 0 : Math.min(200, Number(process.env.ALERT_TOP || 100) || 0));
