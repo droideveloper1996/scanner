@@ -65,5 +65,9 @@ export async function topCoinsByVolume(n: number, minUsd = 1_000_000): Promise<s
     const v = Number(x.vv);
     if (Number.isFinite(v)) vol.set(m[1], (vol.get(m[1]) ?? 0) + v);
   }
-  return [...vol].filter(([, v]) => v >= minUsd).sort((a, b) => b[1] - a[1]).slice(0, n).map(([s]) => s);
+  const rows = (res.data as RawTicker[]) || [];
+  const ranked = [...vol].sort((a, b) => b[1] - a[1]);
+  if (process.env.UNIVERSE_DEBUG) console.log('tickers', rows.length, 'spot coins', vol.size, 'sample', rows.slice(0, 5).map(r => r.i).join(','),
+    'top', ranked.slice(0, 5).map(([s, v]) => `${s}:${Math.round(v)}`).join(','), '#100 vol', Math.round(ranked[99]?.[1] ?? 0));
+  return ranked.filter(([, v]) => v >= minUsd).slice(0, n).map(([s]) => s);
 }
