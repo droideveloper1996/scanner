@@ -15,7 +15,7 @@ async function get(path: string) {
 const SKIP = /^(USDT|USDC|DAI|FDUSD|PYUSD|USDE|TUSD|USDS|USD1|USDD|EUR|EURC|PAXG|XAUT|WBTC|WETH|STETH)$|\d[LS]$|(UP|DOWN|BULL|BEAR)$/;
 
 /** Top USDT pairs on KuCoin by 24h USD turnover (stablecoins, leveraged and wrapped tokens left out). */
-export async function kucoinTopCoins(n: number, minUsd = 2_000_000): Promise<string[]> {
+export async function kucoinTopCoins(n: number, minUsd = 250_000): Promise<string[]> {
   const d = (await get('/market/allTickers')) as { ticker: { symbol: string; volValue: string }[] };
   return d.ticker
     .map(t => ({ base: t.symbol.endsWith('-USDT') ? t.symbol.slice(0, -5) : '', v: Number(t.volValue) }))

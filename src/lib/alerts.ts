@@ -42,7 +42,7 @@ const strongText = (r: NonNullable<ReturnType<typeof strongCheck>>) =>
 const LOOK = 32, WIN = 4, VOLX = 1.5, COOLDOWN = 4 * 3600e3;
 const MOVE: Record<string, number> = { BTC: 2.5, ETH: 2.5 }, MARGIN: Record<string, number> = { BTC: 0.5, ETH: 0.5 };
 
-export function breakCheck(sym: string, bars15: Bar[], now: number) {
+export function breakCheck(sym: string, bars15: Bar[], now: number, moveDefault = 4.0) {
   const c = closedBars(bars15, 15 * 60e3, now);
   if (c.length < LOOK + WIN + 1) return null;
   const n = c.length - 1, m = (MARGIN[sym] ?? 1.0) / 100;
@@ -55,7 +55,7 @@ export function breakCheck(sym: string, bars15: Bar[], now: number) {
     else if (c[i].c < lo * (1 - m) && c[n].c < lo && vx >= VOLX) hit = { dir: 'down', kind: 'breakdown', level: lo, volx: vx };
   }
   const move = (c[n].c / c[n - WIN].c - 1) * 100;
-  if (!hit && Math.abs(move) >= (MOVE[sym] ?? 4.0)) hit = { dir: move > 0 ? 'up' : 'down', kind: 'move', level: null, volx: null };
+  if (!hit && Math.abs(move) >= (MOVE[sym] ?? moveDefault)) hit = { dir: move > 0 ? 'up' : 'down', kind: 'move', level: null, volx: null };
   return hit ? { ...hit, sym, close: c[n].c, move: Math.round(move * 100) / 100 } : null;
 }
 const breakText = (h: NonNullable<ReturnType<typeof breakCheck>>) => {
@@ -107,7 +107,7 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
           found.push({ at, sym, kind: 'signal', text: strongText(s), delivered: false });
       } else skipped.push(`${sym}: too few 1h candles`);
       bars15[sym] = m15.bars;                       // includes the forming candle (pump book exits use its latest price)
-      const b = breakCheck(sym, m15.bars, now);
+      const b = breakCheck(sym, m15.bars, now, fromKucoin.has(sym) ? 6.0 : 4.0); // smaller top-list coins swing more: 6% for a fast-move alert
       if (b && !seeding) {
         const prev = state.breaks[sym];
         if (!(prev && prev.dir === b.dir && now - Date.parse(prev.at) < COOLDOWN)) {
