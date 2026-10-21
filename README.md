@@ -69,6 +69,7 @@ Call `POST /api/cron/alerts` from system cron every 15 minutes.
 | `POST /api/cron/alerts` | run the checks. Needs `Authorization: Bearer $CRON_SECRET`. `?dry=1` sends and saves nothing. |
 
 ## Notes
+- Telegram: alerts go to TELEGRAM_CHAT_ID plus every subscriber. Anyone who messages the bot (e.g. /start) is subscribed on the next run; /stop unsubscribes. The list lives in alert state, never in the repo or logs.
 - Coins watched by alerts come from `ALERT_COINS` (default 14 coins). Coins you add in the page stay in your browser and are not alerted.
 - The alert check fetches 300 hourly candles per coin. Indicators such as ADX shift with short histories, so keep it at 300.
 - `/api/alerts` shows recent alert text to anyone with the URL. Keep the deployment private if that matters.

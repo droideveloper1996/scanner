@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import { runAlerts } from '../src/lib/alerts';
 import { newBook, stepBook, type PumpBook } from '../src/lib/pumpbook';
-import { sendTelegram, telegramConfigured } from '../src/lib/telegram';
+import { sendTelegram, syncSubscribers, telegramConfigured } from '../src/lib/telegram';
 
 const dry = process.argv.includes('--dry');
 const bookPath = process.env.PUMP_BOOK || path.join('paper', 'pump-book.json');
@@ -14,18 +14,11 @@ const bookPath = process.env.PUMP_BOOK || path.join('paper', 'pump-book.json');
 async function main() {
   if (process.argv.includes('--test')) {
     if (!telegramConfigured()) throw new Error('Telegram secrets missing');
-    const tok = process.env.TELEGRAM_BOT_TOKEN!.trim(), chat = process.env.TELEGRAM_CHAT_ID!.trim();
-    const me = await (await fetch(`https://api.telegram.org/bot${tok}/getMe`)).json() as { ok: boolean; result?: { username?: string } };
-    console.log('bot:', me.ok ? '@' + me.result?.username : 'token rejected');
-    console.log('chat id length:', chat.length, '| equals expected 7315002432:', chat === '7315002432');
-    const r = await (await fetch(`https://api.telegram.org/bot${tok}/sendMessage`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: chat, text: `✅ Test from crypto scanner (GitHub Actions) at ${new Date().toISOString()}. Alerts are live, scanning every 5 min.` }),
-    })).json() as { ok: boolean; description?: string; result?: { chat?: { type?: string; username?: string; first_name?: string; title?: string } } };
-    const c = r.result?.chat;
-    console.log('send ok:', r.ok, r.description || '', '| delivered to chat type:', c?.type); // no names: logs are public
+    const { sent } = await sendTelegram(`✅ Test from crypto scanner (GitHub Actions) at ${new Date().toISOString()}. Alerts are live, scanning every 5 min.`);
+    console.log('test message sent to', sent, 'chat(s)'); // counts only: logs are public
     return;
   }
+  if (telegramConfigured()) console.log('subscribers:', (await syncSubscribers().catch(() => [])).length);
   const r = await runAlerts({ dry });
   const { bars15, freshBreaks, labels, ...rest } = r;
   console.log(JSON.stringify(rest, null, 1));
