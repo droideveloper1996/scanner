@@ -9,7 +9,12 @@ name: crypto-alerts
 on:
   schedule:
     - cron: '2-59/5 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      test:
+        description: 'Only send a Telegram test message'
+        type: boolean
+        default: false
 permissions:
   contents: write   # commits paper/pump-book.json when the virtual pump book changes
 concurrency:
@@ -36,7 +41,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ALERT_COINS: ${{ vars.ALERT_COINS }}
           DATA_DIR: .data
-        run: npx -y tsx@4 scripts/run-alerts.ts
+        run: npx -y tsx@4 scripts/run-alerts.ts ${{ inputs.test && '--test' || '' }}
       - name: Save alert state
         uses: actions/cache/save@v4
         with:

@@ -1,7 +1,7 @@
 /* Runs the alert check once, without the Next.js server. Used by the GitHub Actions workflow every 15 minutes.
  * Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to send; alert state goes to DATA_DIR (default .data/).
  * Also steps the virtual pump book in paper/pump-book.json (PUMP_BOOK to override). No real orders.
- * Usage: tsx scripts/run-alerts.ts [--dry] */
+ * Usage: tsx scripts/run-alerts.ts [--dry] [--test]   (--test only sends a Telegram test message) */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import { runAlerts } from '../src/lib/alerts';
@@ -12,6 +12,12 @@ const dry = process.argv.includes('--dry');
 const bookPath = process.env.PUMP_BOOK || path.join('paper', 'pump-book.json');
 
 async function main() {
+  if (process.argv.includes('--test')) {
+    if (!telegramConfigured()) throw new Error('Telegram secrets missing');
+    await sendTelegram(`✅ Test from crypto scanner (GitHub Actions) at ${new Date().toISOString()}. Alerts are live, scanning every 5 min.`);
+    console.log('test message sent');
+    return;
+  }
   const r = await runAlerts({ dry });
   const { bars15, freshBreaks, labels, ...rest } = r;
   console.log(JSON.stringify(rest, null, 1));
