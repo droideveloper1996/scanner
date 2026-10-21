@@ -23,7 +23,7 @@ async function main() {
       body: JSON.stringify({ chat_id: chat, text: `✅ Test from crypto scanner (GitHub Actions) at ${new Date().toISOString()}. Alerts are live, scanning every 5 min.` }),
     })).json() as { ok: boolean; description?: string; result?: { chat?: { type?: string; username?: string; first_name?: string; title?: string } } };
     const c = r.result?.chat;
-    console.log('send ok:', r.ok, r.description || '', '| delivered to chat type:', c?.type, '| name:', c?.first_name || c?.title || '', c?.username ? '@' + c.username : '');
+    console.log('send ok:', r.ok, r.description || '', '| delivered to chat type:', c?.type); // no names: logs are public
     return;
   }
   const r = await runAlerts({ dry });
