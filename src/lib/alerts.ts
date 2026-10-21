@@ -1,7 +1,8 @@
 import type { Bar } from './types';
 import { tfDef } from './types';
 import { analyse } from './signal';
-import { getCandlesFor, topCoinsByVolume, UpstreamError } from './cryptocom';
+import { getCandlesFor, UpstreamError } from './cryptocom';
+import { kucoinCandles, kucoinTopCoins } from './kucoin';
 import { alertCoins, alertTop } from './config';
 import { getStore } from './store';
 import { sendTelegram, telegramConfigured } from './telegram';
@@ -79,9 +80,13 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   const store = getStore();
   const state = (await store.get<AlertState>(STATE_KEY)) ?? emptyState();
   const seeding = state.checked == null;      // first ever run: record labels, do not flood
-  let coins = alertCoins();
+  let skippedTop = '';
+  // The default coins use Crypto.com; the wider top-by-volume list uses KuCoin, which has deeper liquidity in more coins.
+  const base = alertCoins();
   const top = alertTop();
-  if (top) coins = [...new Set([...coins, ...(await topCoinsByVolume(top).catch(() => [] as string[]))])];
+  const extra = top ? (await kucoinTopCoins(top).catch(e => { skippedTop = (e as Error).message; return [] as string[]; })).filter(s => !base.includes(s)) : [];
+  const coins = [...base, ...extra];
+  const fromKucoin = new Set(extra);
   const skipped: string[] = [];
   const found: AlertRec[] = [];
   const labels: Record<string, string> = {};
@@ -92,7 +97,8 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
 
   await pool(coins, 10, async sym => {
     try {
-      const [h1, m15] = await Promise.all([getCandlesFor(sym, '1h', 300), getCandlesFor(sym, '15m', 100)]);
+      const fetchC = fromKucoin.has(sym) ? kucoinCandles : getCandlesFor;
+      const [h1, m15] = await Promise.all([fetchC(sym, '1h', 300), fetchC(sym, '15m', 100)]);
       const s = strongCheck(sym, h1.bars, now);
       if (s) {
         labels[sym] = s.label;
@@ -131,7 +137,7 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
       checked: at,
     } satisfies AlertState);
   }
-  return { checkedAt: at, seeded: seeding, dry, coins: coins.length, storage: store.kind, telegram: telegramConfigured(), alerts: found, labels, skipped, bars15, freshBreaks };
+  return { checkedAt: at, seeded: seeding, dry, coins: coins.length, topList: skippedTop ? `failed: ${skippedTop}` : extra.length, storage: store.kind, telegram: telegramConfigured(), alerts: found, labels, skipped, bars15, freshBreaks };
 }
 
 export async function readState() {
