@@ -1,14 +1,14 @@
-# Runs the alert check every 30 minutes on GitHub's own runners. No Vercel or Redis needed.
+# Runs the alert check every 5 minutes on GitHub's own runners. No Vercel or Redis needed.
 # Repo secrets: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID. Optional repo variable: ALERT_COINS.
 # Alert state (what already fired) is carried between runs in the Actions cache.
-# Every 30 minutes is ~1,500 Actions minutes a month, inside the 2,000 free on a private repo. Every 5 minutes (~8,700) only fits a public repo.
+# Every 5 minutes is ~8,700 Actions minutes a month: free on a public repo (this one). If the repo goes private, use '7,37 * * * *' (every 30 min) to stay inside the 2,000 free minutes.
 # The pump sleeve of the crypto paper book (paper trades only, never real orders) lives in paper/pump-book.json and is committed when it changes.
 # Minutes are offset from :00 because GitHub drops or delays more scheduled runs at the top of the hour.
 # GitHub can still start a run several minutes late, and pauses schedules after 60 days without repo activity.
 name: crypto-alerts
 on:
   schedule:
-    - cron: '7,37 * * * *'
+    - cron: '2-59/5 * * * *'
   workflow_dispatch: {}
 permissions:
   contents: write   # commits paper/pump-book.json when the virtual pump book changes
