@@ -1,0 +1,54 @@
+# Runs the alert check every 30 minutes on GitHub's own runners. No Vercel or Redis needed.
+# Repo secrets: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID. Optional repo variable: ALERT_COINS.
+# Alert state (what already fired) is carried between runs in the Actions cache.
+# Every 30 minutes is ~1,500 Actions minutes a month, inside the 2,000 free on a private repo. Every 5 minutes (~8,700) only fits a public repo.
+# The pump sleeve of the crypto paper book (paper trades only, never real orders) lives in paper/pump-book.json and is committed when it changes.
+# Minutes are offset from :00 because GitHub drops or delays more scheduled runs at the top of the hour.
+# GitHub can still start a run several minutes late, and pauses schedules after 60 days without repo activity.
+name: crypto-alerts
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch: {}
+permissions:
+  contents: write   # commits paper/pump-book.json when the virtual pump book changes
+concurrency:
+  group: crypto-alerts
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Restore alert state
+        uses: actions/cache/restore@v4
+        with:
+          path: .data
+          key: alerts-state-${{ github.run_id }}
+          restore-keys: alerts-state-
+      - name: Run alert check
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERT_COINS: ${{ vars.ALERT_COINS }}
+          DATA_DIR: .data
+        run: npx -y tsx@4 scripts/run-alerts.ts
+      - name: Save alert state
+        uses: actions/cache/save@v4
+        with:
+          path: .data
+          key: alerts-state-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Commit pump book
+        run: |
+          git add -N paper/pump-book.json 2>/dev/null || true
+          if [ -n "$(git status --porcelain paper)" ]; then
+            git config user.name "crypto-alerts bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add paper/pump-book.json
+            git commit -m "pump book $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi

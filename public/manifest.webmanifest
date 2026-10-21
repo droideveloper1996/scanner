@@ -1,0 +1,17 @@
+{
+  "name": "Crypto Signal Scanner",
+  "short_name": "Crypto Scanner",
+  "description": "Live buy and sell signals for meme, DeFi and major crypto. Read-only market data.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#101215",
+  "theme_color": "#101215",
+  "categories": ["finance", "utilities"],
+  "icons": [
+    {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
