@@ -4,7 +4,7 @@
  * Usage: tsx scripts/run-alerts.ts [--dry] [--test]   (--test only sends a Telegram test message) */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
-import { runAlerts } from '../src/lib/alerts';
+import { alertMessage, breakText, runAlerts, strongText } from '../src/lib/alerts';
 import { newBook, stepBook, type PumpBook } from '../src/lib/pumpbook';
 import { sendTelegram, syncSubscribers, telegramConfigured } from '../src/lib/telegram';
 
@@ -16,6 +16,14 @@ async function main() {
     if (!telegramConfigured()) throw new Error('Telegram secrets missing');
     const { sent } = await sendTelegram(`✅ Test from crypto scanner (GitHub Actions) at ${new Date().toISOString()}. Alerts are live, scanning every 5 min.`);
     console.log('test message sent to', sent, 'chat(s)'); // counts only: logs are public
+    // a SAMPLE of the alert format, with made-up numbers
+    const at = new Date().toISOString(), now = Date.now();
+    const sample = [
+      { at, sym: 'SOL', kind: 'break' as const, delivered: false, text: breakText({ sym: 'SOL', dir: 'up', kind: 'breakout', level: 182.1, volx: 2.4, close: 185.2, move: 3.2 }, false) },
+      { at, sym: 'PEPE', kind: 'break' as const, delivered: false, text: breakText({ sym: 'PEPE', dir: 'up', kind: 'move', level: null, volx: null, close: 0.00001234, move: 7.8 }, true) },
+      { at, sym: 'ETH', kind: 'signal' as const, delivered: false, text: strongText({ sym: 'ETH', label: 'Strong Buy', score: 5, close: 4012.5, rsi: 63.4, stop: 3890.2, candle: now }, false) },
+    ];
+    await sendTelegram('🧪 <b>SAMPLE</b> (made-up numbers, format preview only)\n\n' + alertMessage(sample, now), { html: true });
     return;
   }
   if (telegramConfigured()) console.log('subscribers:', (await syncSubscribers().catch(() => [])).length);

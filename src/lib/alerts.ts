@@ -35,8 +35,22 @@ export function strongCheck(sym: string, bars1h: Bar[], now: number) {
   const close = c[c.length - 1].c, stop = a.ST.line[a.n];
   return { sym, label: a.label, score: a.score, close, rsi: Math.round((a.R[a.n] ?? 0) * 10) / 10, stop, candle: c[c.length - 1].t };
 }
-const strongText = (r: NonNullable<ReturnType<typeof strongCheck>>) =>
-  `${r.label.includes('Buy') ? '▲' : '▼'} ${r.sym} ${r.label} · $${fmt(r.close)} · score ${r.score > 0 ? '+' : ''}${r.score} · RSI ${r.rsi}${r.stop ? ` · stop $${fmt(r.stop)}` : ''} (1h)`;
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const pct = (x: number, d = 1) => `${x > 0 ? '+' : ''}${x.toFixed(d)}%`;
+const chartLink = (sym: string, kucoin: boolean) => kucoin
+  ? `<a href="https://www.kucoin.com/trade/${encodeURIComponent(sym)}-USDT">Chart (KuCoin)</a>`
+  : `<a href="https://crypto.com/exchange/trade/${encodeURIComponent(sym)}_USD">Chart (Crypto.com)</a>`;
+export const strongText = (r: NonNullable<ReturnType<typeof strongCheck>>, kucoin: boolean) => {
+  const buy = r.label.includes('Buy');
+  const lines = [
+    `${buy ? '🟢' : '🔴'} <b>${esc(r.label.toUpperCase())} · ${esc(r.sym)}</b>  <i>1h</i>`,
+    `Price: <code>$${fmt(r.close)}</code>`,
+    `Score: <b>${r.score > 0 ? '+' : ''}${r.score}</b> · RSI ${r.rsi}`,
+  ];
+  if (r.stop) lines.push(`Stop: <code>$${fmt(r.stop)}</code> (${pct((r.stop / r.close - 1) * 100)})`);
+  lines.push(chartLink(r.sym, kucoin));
+  return lines.join('\n');
+};
 
 /* ---- 15m breakouts: 8h high/low break on volume, or a fast 1h move ---- */
 const LOOK = 32, WIN = 4, VOLX = 1.5, COOLDOWN = 4 * 3600e3;
@@ -58,13 +72,33 @@ export function breakCheck(sym: string, bars15: Bar[], now: number, moveDefault 
   if (!hit && Math.abs(move) >= (MOVE[sym] ?? moveDefault)) hit = { dir: move > 0 ? 'up' : 'down', kind: 'move', level: null, volx: null };
   return hit ? { ...hit, sym, close: c[n].c, move: Math.round(move * 100) / 100 } : null;
 }
-const breakText = (h: NonNullable<ReturnType<typeof breakCheck>>) => {
-  const arrow = h.dir === 'up' ? '🚀' : '🔻';
-  const what = h.kind === 'move'
-    ? `${h.dir === 'up' ? 'surged' : 'dropped'} ${h.move > 0 ? '+' : ''}${h.move.toFixed(1)}% in 1h`
-    : `${h.kind} ${h.dir === 'up' ? 'above' : 'below'} 8h ${h.dir === 'up' ? 'high' : 'low'} $${fmt(h.level!)} · vol ${h.volx!.toFixed(1)}x · ${h.move > 0 ? '+' : ''}${h.move.toFixed(1)}% 1h`;
-  return `${arrow} ${h.sym} ${what} · now $${fmt(h.close)} (15m)`;
+export const breakText = (h: NonNullable<ReturnType<typeof breakCheck>>, kucoin: boolean) => {
+  const up = h.dir === 'up';
+  const lines: string[] = [];
+  if (h.kind === 'move') {
+    lines.push(`${up ? '⚡' : '💥'} <b>FAST ${up ? 'PUMP' : 'DUMP'} · ${esc(h.sym)}</b>  <i>15m</i>`);
+    lines.push(`Price: <code>$${fmt(h.close)}</code> (<b>${pct(h.move)}</b> in 1h)`);
+    lines.push(`No clean 8h ${up ? 'high' : 'low'} break yet: chasing is risky`);
+  } else {
+    const lvl = h.level!, past = (h.close / lvl - 1) * 100;
+    lines.push(`${up ? '🚀' : '🔻'} <b>${up ? 'BREAKOUT' : 'BREAKDOWN'} · ${esc(h.sym)}</b>  <i>15m</i>`);
+    lines.push(`Price: <code>$${fmt(h.close)}</code> (${pct(h.move)} in 1h)`);
+    lines.push(`Broke 8h ${up ? 'high' : 'low'}: <code>$${fmt(lvl)}</code> (now ${pct(past)} ${up ? 'above' : 'below'})`);
+    lines.push(`Volume: <b>${h.volx!.toFixed(1)}×</b> the 8h average`);
+    lines.push(`${up ? 'Pullback support' : 'Retest resistance'}: <code>$${fmt(lvl)}</code>, invalid if it closes back ${up ? 'below' : 'above'}`);
+  }
+  lines.push(chartLink(h.sym, kucoin));
+  return lines.join('\n');
 };
+/** One Telegram message: a header, then each alert as its own block. Breakouts come first. */
+export function alertMessage(found: AlertRec[], now: number) {
+  const ist = new Date(now + 5.5 * 3600e3).toISOString().slice(11, 16);
+  const order = (a: AlertRec) => (a.kind === 'break' ? 0 : 1);
+  const sorted = [...found].sort((a, b) => order(a) - order(b) || a.sym.localeCompare(b.sym));
+  const nb = found.filter(f => f.kind === 'break').length, ns = found.length - nb;
+  const head = `📊 <b>Crypto scanner</b> · ${ist} IST\n${[nb && `${nb} breakout${nb > 1 ? 's' : ''}`, ns && `${ns} signal${ns > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}`;
+  return [head, ...sorted.map(f => f.text), '<i>Paper signals, not financial advice.</i>'].join('\n\n');
+}
 
 async function pool<T, R>(items: T[], size: number, fn: (x: T) => Promise<R>): Promise<R[]> {
   const out: R[] = []; let i = 0;
@@ -104,14 +138,14 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
         labels[sym] = s.label;
         // a coin seen for the first time (e.g. new in the top list) only records its label, so it does not alert on arrival
         if (s.label.startsWith('Strong') && s.label !== state.last[sym] && !seeding && sym in state.last)
-          found.push({ at, sym, kind: 'signal', text: strongText(s), delivered: false });
+          found.push({ at, sym, kind: 'signal', text: strongText(s, fromKucoin.has(sym)), delivered: false });
       } else skipped.push(`${sym}: too few 1h candles`);
       bars15[sym] = m15.bars;                       // includes the forming candle (pump book exits use its latest price)
       const b = breakCheck(sym, m15.bars, now, fromKucoin.has(sym) ? 6.0 : 4.0); // smaller top-list coins swing more: 6% for a fast-move alert
       if (b && !seeding) {
         const prev = state.breaks[sym];
         if (!(prev && prev.dir === b.dir && now - Date.parse(prev.at) < COOLDOWN)) {
-          found.push({ at, sym, kind: 'break', text: breakText(b), delivered: false });
+          found.push({ at, sym, kind: 'break', text: breakText(b, fromKucoin.has(sym)), delivered: false });
           nextBreaks[sym] = { dir: b.dir, at };
           freshBreaks.push(b);
         }
@@ -124,7 +158,7 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
 
   let delivered = false;
   if (found.length && telegramConfigured() && !dry) {
-    await sendTelegram(found.map(f => f.text).join('\n')); // throws on failure: state is not saved, so the next run retries
+    await sendTelegram(alertMessage(found, now), { html: true }); // throws on failure: state is not saved, so the next run retries
     delivered = true;
   }
   for (const f of found) f.delivered = delivered;

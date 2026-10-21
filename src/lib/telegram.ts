@@ -42,19 +42,19 @@ export async function syncSubscribers(): Promise<number[]> {
 
 /** Sends to the owner chat (TELEGRAM_CHAT_ID) and every subscriber. Throws only if the owner chat fails,
  *  so a failed run is retried; subscribers who blocked the bot are dropped. */
-export async function sendTelegram(text: string): Promise<{ sent: number }> {
+export async function sendTelegram(text: string, opts: { html?: boolean } = {}): Promise<{ sent: number }> {
   const owner = process.env.TELEGRAM_CHAT_ID;
   if (!process.env.TELEGRAM_BOT_TOKEN || !owner) throw new Error('TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are not set');
   const subs = await syncSubscribers().catch(() => [] as number[]);
-  // Telegram caps a message at 4096 chars: split long alert batches on line breaks
+  // Telegram caps a message at 4096 chars: split long batches between blocks (blank lines), so HTML tags never split
   const parts: string[] = [];
-  for (const line of text.split('\n')) {
+  for (const block of text.split('\n\n')) {
     const cur = parts[parts.length - 1];
-    if (cur !== undefined && cur.length + line.length + 1 <= 3900) parts[parts.length - 1] = cur + '\n' + line;
-    else parts.push(line.slice(0, 3900));
+    if (cur !== undefined && cur.length + block.length + 2 <= 3900) parts[parts.length - 1] = cur + '\n\n' + block;
+    else parts.push(block.slice(0, 3900));
   }
   const send = async (chat: string | number) => {
-    for (const p of parts) { const x = await tg('sendMessage', { chat_id: chat, text: p, disable_web_page_preview: true }); if (!x.ok) return x; }
+    for (const p of parts) { const x = await tg('sendMessage', { chat_id: chat, text: p, disable_web_page_preview: true, ...(opts.html ? { parse_mode: 'HTML' } : {}) }); if (!x.ok) return x; }
     return { ok: true, status: 200 };
   };
   const r = await send(owner);

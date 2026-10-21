@@ -6,6 +6,9 @@ type Feed = {
   recent: { at: string; sym: string; kind: string; text: string; delivered: boolean }[];
 };
 
+/** Alerts are stored as Telegram HTML: show them as one plain line. */
+const plain = (t: string) => t.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').split('\n').filter(l => !l.startsWith('Chart (')).join(' · ');
+
 export function AlertsPanel() {
   const [f, setF] = useState<Feed | null>(null);
   useEffect(() => {
@@ -29,7 +32,7 @@ export function AlertsPanel() {
           {f.error && <div className="msg err">{f.error}</div>}
           {f.recent.length === 0
             ? <p className="why">No alerts yet. An alert fires when a coin enters Strong Buy or Strong Sell on a closed 1h candle, or breaks its 8h high or low on volume.</p>
-            : <ul>{f.recent.map((a, i) => <li key={i}><time>{t(a.at)}</time><span>{a.text}</span></li>)}</ul>}
+            : <ul>{f.recent.map((a, i) => <li key={i}><time>{t(a.at)}</time><span>{plain(a.text)}</span></li>)}</ul>}
         </>
       )}
     </section>
