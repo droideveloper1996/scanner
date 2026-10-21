@@ -137,7 +137,7 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
       checked: at,
     } satisfies AlertState);
   }
-  return { checkedAt: at, seeded: seeding, dry, coins: coins.length, topList: skippedTop ? `failed: ${skippedTop}` : extra.length, storage: store.kind, telegram: telegramConfigured(), alerts: found, labels, skipped, bars15, freshBreaks };
+  return { checkedAt: at, seeded: seeding, dry, coins: coins.length, watching: coins.join(","), topList: skippedTop ? `failed: ${skippedTop}` : extra.length, storage: store.kind, telegram: telegramConfigured(), alerts: found, labels, skipped, bars15, freshBreaks };
 }
 
 export async function readState() {
