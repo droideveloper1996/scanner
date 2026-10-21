@@ -47,7 +47,7 @@ export const strongText = (r: NonNullable<ReturnType<typeof strongCheck>>, kucoi
     `Price: <code>$${fmt(r.close)}</code>`,
     `Score: <b>${r.score > 0 ? '+' : ''}${r.score}</b> · RSI ${r.rsi}`,
   ];
-  if (r.stop) lines.push(`Stop: <code>$${fmt(r.stop)}</code> (${pct((r.stop / r.close - 1) * 100)})`);
+  if (r.stop && (buy ? r.stop < r.close : r.stop > r.close)) lines.push('', ...planLines(buy, r.close, r.stop, '(stop = Supertrend line)'));
   lines.push(chartLink(r.sym, kucoin));
   return lines.join('\n');
 };
@@ -70,7 +70,23 @@ export function breakCheck(sym: string, bars15: Bar[], now: number, moveDefault 
   }
   const move = (c[n].c / c[n - WIN].c - 1) * 100;
   if (!hit && Math.abs(move) >= (MOVE[sym] ?? moveDefault)) hit = { dir: move > 0 ? 'up' : 'down', kind: 'move', level: null, volx: null };
-  return hit ? { ...hit, sym, close: c[n].c, move: Math.round(move * 100) / 100 } : null;
+  let tr = 0;                                     // 14-bar average true range of the 15m candles, for stops on fast moves
+  for (let i = n - 13; i <= n; i++) tr += Math.max(c[i].h - c[i].l, Math.abs(c[i].h - c[i - 1].c), Math.abs(c[i].l - c[i - 1].c));
+  return hit ? { ...hit, sym, close: c[n].c, move: Math.round(move * 100) / 100, atr: tr / 14 } : null;
+}
+/** Entry, stop and two targets, the same rules as the paper pump book: +1R = move stop to entry, +2R = exit. */
+const STOP_PAST = 0.005, WIDE = 6;
+function planLines(long: boolean, entry: number, stop: number, alt?: string) {
+  const risk = Math.abs(entry - stop), d = long ? 1 : -1, riskPct = (risk / entry) * 100;
+  const out = [
+    `<b>${long ? '🟩 LONG' : '🟥 SHORT'} plan</b>${long ? '' : ' (futures only; spot holders: exit/avoid)'}`,
+    `Entry: <code>$${fmt(entry)}</code>${alt ? ` ${alt}` : ''}`,
+    `Stop-loss: <code>$${fmt(stop)}</code> (${pct(-d * riskPct)})`,
+    `Target 1: <code>$${fmt(entry + d * risk)}</code> (${pct(d * riskPct)}), then move stop to entry`,
+    `Target 2: <code>$${fmt(entry + d * 2 * risk)}</code> (${pct(d * 2 * riskPct)}), exit the rest`,
+  ];
+  if (riskPct > WIDE) out.push(`⚠️ Stop is ${riskPct.toFixed(1)}% away: wide. Wait for a pullback or size small.`);
+  return out;
 }
 export const breakText = (h: NonNullable<ReturnType<typeof breakCheck>>, kucoin: boolean) => {
   const up = h.dir === 'up';
@@ -79,13 +95,15 @@ export const breakText = (h: NonNullable<ReturnType<typeof breakCheck>>, kucoin:
     lines.push(`${up ? '⚡' : '💥'} <b>FAST ${up ? 'PUMP' : 'DUMP'} · ${esc(h.sym)}</b>  <i>15m</i>`);
     lines.push(`Price: <code>$${fmt(h.close)}</code> (<b>${pct(h.move)}</b> in 1h)`);
     lines.push(`No clean 8h ${up ? 'high' : 'low'} break yet: chasing is risky`);
+    lines.push('', ...planLines(up, h.close, up ? h.close - 2 * h.atr : h.close + 2 * h.atr, '(aggressive; stop = 2× 15m ATR)'));
   } else {
     const lvl = h.level!, past = (h.close / lvl - 1) * 100;
     lines.push(`${up ? '🚀' : '🔻'} <b>${up ? 'BREAKOUT' : 'BREAKDOWN'} · ${esc(h.sym)}</b>  <i>15m</i>`);
     lines.push(`Price: <code>$${fmt(h.close)}</code> (${pct(h.move)} in 1h)`);
     lines.push(`Broke 8h ${up ? 'high' : 'low'}: <code>$${fmt(lvl)}</code> (now ${pct(past)} ${up ? 'above' : 'below'})`);
     lines.push(`Volume: <b>${h.volx!.toFixed(1)}×</b> the 8h average`);
-    lines.push(`${up ? 'Pullback support' : 'Retest resistance'}: <code>$${fmt(lvl)}</code>, invalid if it closes back ${up ? 'below' : 'above'}`);
+    lines.push('', ...planLines(up, h.close, lvl * (up ? 1 - STOP_PAST : 1 + STOP_PAST), `or on a retest of <code>$${fmt(lvl)}</code>`));
+    lines.push(`Invalid if a 15m candle closes back ${up ? 'below' : 'above'} <code>$${fmt(lvl)}</code>`);
   }
   lines.push(chartLink(h.sym, kucoin));
   return lines.join('\n');

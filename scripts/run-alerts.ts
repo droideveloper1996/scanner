@@ -19,8 +19,8 @@ async function main() {
     // a SAMPLE of the alert format, with made-up numbers
     const at = new Date().toISOString(), now = Date.now();
     const sample = [
-      { at, sym: 'SOL', kind: 'break' as const, delivered: false, text: breakText({ sym: 'SOL', dir: 'up', kind: 'breakout', level: 182.1, volx: 2.4, close: 185.2, move: 3.2 }, false) },
-      { at, sym: 'PEPE', kind: 'break' as const, delivered: false, text: breakText({ sym: 'PEPE', dir: 'up', kind: 'move', level: null, volx: null, close: 0.00001234, move: 7.8 }, true) },
+      { at, sym: 'SOL', kind: 'break' as const, delivered: false, text: breakText({ sym: 'SOL', dir: 'up', kind: 'breakout', level: 182.1, volx: 2.4, close: 185.2, move: 3.2, atr: 0.9 }, false) },
+      { at, sym: 'PEPE', kind: 'break' as const, delivered: false, text: breakText({ sym: 'PEPE', dir: 'up', kind: 'move', level: null, volx: null, close: 0.00001234, move: 7.8, atr: 0.0000002 }, true) },
       { at, sym: 'ETH', kind: 'signal' as const, delivered: false, text: strongText({ sym: 'ETH', label: 'Strong Buy', score: 5, close: 4012.5, rsi: 63.4, stop: 3890.2, candle: now }, false) },
     ];
     await sendTelegram('🧪 <b>SAMPLE</b> (made-up numbers, format preview only)\n\n' + alertMessage(sample, now), { html: true });

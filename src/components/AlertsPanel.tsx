@@ -7,7 +7,7 @@ type Feed = {
 };
 
 /** Alerts are stored as Telegram HTML: show them as one plain line. */
-const plain = (t: string) => t.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').split('\n').filter(l => !l.startsWith('Chart (')).join(' · ');
+const plain = (t: string) => t.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').split('\n\n')[0].split('\n').join(' · ');
 
 export function AlertsPanel() {
   const [f, setF] = useState<Feed | null>(null);
