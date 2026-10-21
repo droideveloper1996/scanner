@@ -40,16 +40,36 @@ const pct = (x: number, d = 1) => `${x > 0 ? '+' : ''}${x.toFixed(d)}%`;
 const chartLink = (sym: string, kucoin: boolean) => kucoin
   ? `<a href="https://www.kucoin.com/trade/${encodeURIComponent(sym)}-USDT">Chart (KuCoin)</a>`
   : `<a href="https://crypto.com/exchange/trade/${encodeURIComponent(sym)}_USD">Chart (Crypto.com)</a>`;
+/** Telegram has no tables: a <pre> block with padded columns renders as one (monospace on every app). */
+const table = (rows: (string[] | null)[]) =>
+  `<pre>${rows.map(r => r ? esc(r[0].padEnd(9) + (r[1] ?? '').padEnd(13) + (r[2] ?? '')).trimEnd() : '─'.repeat(28)).join('\n')}</pre>`;
+/** Entry, stop and two targets, the same rules as the paper pump book: +1R = move stop to entry, +2R = exit. */
+const STOP_PAST = 0.005, WIDE = 6;
+function planRows(long: boolean, entry: number, stop: number): string[][] {
+  const risk = Math.abs(entry - stop), d = long ? 1 : -1, rp = (risk / entry) * 100;
+  return [
+    ['Entry', `$${fmt(entry)}`],
+    ['Stop', `$${fmt(stop)}`, pct(-d * rp)],
+    ['Target 1', `$${fmt(entry + d * risk)}`, pct(d * rp)],
+    ['Target 2', `$${fmt(entry + d * 2 * risk)}`, pct(d * 2 * rp)],
+  ];
+}
+const notes = (long: boolean, entry: number, stop: number, extra: string[]) => {
+  const rp = (Math.abs(entry - stop) / entry) * 100;
+  const out = [...extra, 'At Target 1 move stop to entry; exit the rest at Target 2'];
+  if (!long) out.push('Short = futures only. Spot holders: exit or avoid');
+  if (rp > WIDE) out.push(`⚠️ Stop is ${rp.toFixed(1)}% away: wait for a pullback or size small`);
+  return out.map(n => `• ${n}`).join('\n');
+};
+const side = (long: boolean) => (long ? '🟩 LONG' : '🟥 SHORT');
+
 export const strongText = (r: NonNullable<ReturnType<typeof strongCheck>>, kucoin: boolean) => {
   const buy = r.label.includes('Buy');
-  const lines = [
-    `${buy ? '🟢' : '🔴'} <b>${esc(r.label.toUpperCase())} · ${esc(r.sym)}</b>  <i>1h</i>`,
-    `Price: <code>$${fmt(r.close)}</code>`,
-    `Score: <b>${r.score > 0 ? '+' : ''}${r.score}</b> · RSI ${r.rsi}`,
-  ];
-  if (r.stop && (buy ? r.stop < r.close : r.stop > r.close)) lines.push('', ...planLines(buy, r.close, r.stop, '(stop = Supertrend line)'));
-  lines.push(chartLink(r.sym, kucoin));
-  return lines.join('\n');
+  const plan = !!r.stop && (buy ? r.stop < r.close : r.stop > r.close);
+  const head = `${buy ? '🟢' : '🔴'} <b>${esc(r.label.toUpperCase())} · ${esc(r.sym)}</b> · 1h${plan ? ` · ${side(buy)}` : ''}`;
+  const rows: (string[] | null)[] = [['Price', `$${fmt(r.close)}`], ['Score', `${r.score > 0 ? '+' : ''}${r.score}`, `RSI ${r.rsi}`]];
+  if (plan) rows.push(null, ...planRows(buy, r.close, r.stop));
+  return [head, table(rows), plan ? notes(buy, r.close, r.stop, ['Stop = Supertrend line']) : '', chartLink(r.sym, kucoin)].filter(Boolean).join('\n');
 };
 
 /* ---- 15m breakouts: 8h high/low break on volume, or a fast 1h move ---- */
@@ -74,39 +94,23 @@ export function breakCheck(sym: string, bars15: Bar[], now: number, moveDefault 
   for (let i = n - 13; i <= n; i++) tr += Math.max(c[i].h - c[i].l, Math.abs(c[i].h - c[i - 1].c), Math.abs(c[i].l - c[i - 1].c));
   return hit ? { ...hit, sym, close: c[n].c, move: Math.round(move * 100) / 100, atr: tr / 14 } : null;
 }
-/** Entry, stop and two targets, the same rules as the paper pump book: +1R = move stop to entry, +2R = exit. */
-const STOP_PAST = 0.005, WIDE = 6;
-function planLines(long: boolean, entry: number, stop: number, alt?: string) {
-  const risk = Math.abs(entry - stop), d = long ? 1 : -1, riskPct = (risk / entry) * 100;
-  const out = [
-    `<b>${long ? '🟩 LONG' : '🟥 SHORT'} plan</b>${long ? '' : ' (futures only; spot holders: exit/avoid)'}`,
-    `Entry: <code>$${fmt(entry)}</code>${alt ? ` ${alt}` : ''}`,
-    `Stop-loss: <code>$${fmt(stop)}</code> (${pct(-d * riskPct)})`,
-    `Target 1: <code>$${fmt(entry + d * risk)}</code> (${pct(d * riskPct)}), then move stop to entry`,
-    `Target 2: <code>$${fmt(entry + d * 2 * risk)}</code> (${pct(d * 2 * riskPct)}), exit the rest`,
-  ];
-  if (riskPct > WIDE) out.push(`⚠️ Stop is ${riskPct.toFixed(1)}% away: wide. Wait for a pullback or size small.`);
-  return out;
-}
 export const breakText = (h: NonNullable<ReturnType<typeof breakCheck>>, kucoin: boolean) => {
   const up = h.dir === 'up';
-  const lines: string[] = [];
+  const rows: (string[] | null)[] = [['Price', `$${fmt(h.close)}`, `${pct(h.move)} 1h`]];
+  let head: string, stop: number, extra: string[];
   if (h.kind === 'move') {
-    lines.push(`${up ? '⚡' : '💥'} <b>FAST ${up ? 'PUMP' : 'DUMP'} · ${esc(h.sym)}</b>  <i>15m</i>`);
-    lines.push(`Price: <code>$${fmt(h.close)}</code> (<b>${pct(h.move)}</b> in 1h)`);
-    lines.push(`No clean 8h ${up ? 'high' : 'low'} break yet: chasing is risky`);
-    lines.push('', ...planLines(up, h.close, up ? h.close - 2 * h.atr : h.close + 2 * h.atr, '(aggressive; stop = 2× 15m ATR)'));
+    head = `${up ? '⚡' : '💥'} <b>FAST ${up ? 'PUMP' : 'DUMP'} · ${esc(h.sym)}</b> · 15m · ${side(up)}`;
+    stop = up ? h.close - 2 * h.atr : h.close + 2 * h.atr;
+    extra = [`No clean 8h ${up ? 'high' : 'low'} break: aggressive entry`, 'Stop = 2× 15m ATR'];
   } else {
-    const lvl = h.level!, past = (h.close / lvl - 1) * 100;
-    lines.push(`${up ? '🚀' : '🔻'} <b>${up ? 'BREAKOUT' : 'BREAKDOWN'} · ${esc(h.sym)}</b>  <i>15m</i>`);
-    lines.push(`Price: <code>$${fmt(h.close)}</code> (${pct(h.move)} in 1h)`);
-    lines.push(`Broke 8h ${up ? 'high' : 'low'}: <code>$${fmt(lvl)}</code> (now ${pct(past)} ${up ? 'above' : 'below'})`);
-    lines.push(`Volume: <b>${h.volx!.toFixed(1)}×</b> the 8h average`);
-    lines.push('', ...planLines(up, h.close, lvl * (up ? 1 - STOP_PAST : 1 + STOP_PAST), `or on a retest of <code>$${fmt(lvl)}</code>`));
-    lines.push(`Invalid if a 15m candle closes back ${up ? 'below' : 'above'} <code>$${fmt(lvl)}</code>`);
+    const lvl = h.level!;
+    head = `${up ? '🚀' : '🔻'} <b>${up ? 'BREAKOUT' : 'BREAKDOWN'} · ${esc(h.sym)}</b> · 15m · ${side(up)}`;
+    rows.push([up ? '8h high' : '8h low', `$${fmt(lvl)}`, `${pct((h.close / lvl - 1) * 100)} past`], ['Volume', `${h.volx!.toFixed(1)}×`, '8h avg']);
+    stop = lvl * (up ? 1 - STOP_PAST : 1 + STOP_PAST);
+    extra = [`Or enter on a retest of $${fmt(lvl)}`, `Invalid if a 15m candle closes back ${up ? 'below' : 'above'} $${fmt(lvl)}`];
   }
-  lines.push(chartLink(h.sym, kucoin));
-  return lines.join('\n');
+  rows.push(null, ...planRows(up, h.close, stop));
+  return [head, table(rows), notes(up, h.close, stop, extra), chartLink(h.sym, kucoin)].join('\n');
 };
 /** One Telegram message: a header, then each alert as its own block. Breakouts come first. */
 export function alertMessage(found: AlertRec[], now: number) {
