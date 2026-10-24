@@ -15,6 +15,10 @@ on:
         description: 'Only send a Telegram test message'
         type: boolean
         default: false
+      replay:
+        description: 'Replay the daily setup detector (prints only), then stop'
+        type: boolean
+        default: false
 permissions:
   contents: write   # commits paper/pump-book.json when the virtual pump book changes
 concurrency:
@@ -29,13 +33,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Replay setups
+        if: ${{ inputs.replay }}
+        run: npx -y tsx@4 scripts/replay-setups.ts 120
       - name: Restore alert state
+        if: ${{ !inputs.replay }}
         uses: actions/cache/restore@v4
         with:
           path: .data
           key: alerts-state-${{ github.run_id }}
           restore-keys: alerts-state-
       - name: Run alert check
+        if: ${{ !inputs.replay }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -43,11 +52,13 @@ jobs:
           DATA_DIR: .data
         run: npx -y tsx@4 scripts/run-alerts.ts ${{ inputs.test && '--test' || '' }}
       - name: Save alert state
+        if: ${{ !inputs.replay }}
         uses: actions/cache/save@v4
         with:
           path: .data
           key: alerts-state-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Commit pump book
+        if: ${{ !inputs.replay }}
         run: |
           git add -N paper/pump-book.json 2>/dev/null || true
           if [ -n "$(git status --porcelain paper)" ]; then

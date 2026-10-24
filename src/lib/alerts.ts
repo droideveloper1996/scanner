@@ -6,6 +6,7 @@ import { kucoinCandles, kucoinTopCoins } from './kucoin';
 import { alertCoins, alertTop } from './config';
 import { getStore } from './store';
 import { sendTelegram, telegramConfigured } from './telegram';
+import { setupCheck, cryptoIdea, type Setup } from './setups';
 
 export type AlertRec = { at: string; sym: string; kind: 'signal' | 'break'; text: string; delivered: boolean };
 export type AlertState = {
@@ -13,6 +14,8 @@ export type AlertState = {
   breaks: Record<string, { dir: 'up' | 'down'; at: string }>;
   recent: AlertRec[];
   checked: string | null;
+  setupDay?: string;                                  // UTC date the daily setups were last computed (daily candle closes 00:00 UTC)
+  setups?: (Pick<Setup, 'sym' | 'dir' | 'level' | 'invalid'> & { kucoin?: boolean; triggered?: boolean })[];
 };
 export const STATE_KEY = 'alerts-state';
 const emptyState = (): AlertState => ({ last: {}, breaks: {}, recent: [], checked: null });
@@ -122,6 +125,20 @@ export function alertMessage(found: AlertRec[], now: number) {
   return [head, ...sorted.map(f => f.text), '<i>Paper signals, not financial advice.</i>'].join('\n\n');
 }
 
+/* ---- pre-breakout setups (daily, once per UTC day) and their 15m triggers ---- */
+const setupText = (x: Setup, kucoin: boolean) => {
+  const up = x.dir === 'up';
+  return `${up ? '🟢 LONG watch' : '🔴 SHORT watch'} · <b>${esc(x.sym)}</b>\nSetup ${x.points}/${x.max}: ${x.reasons.map(esc).join(', ')}.\n` +
+    `<pre>Now      $${fmt(x.close)}\nTrigger  ${up ? 'above' : 'below'} $${fmt(x.level)} (${x.dist.toFixed(1)}% away)\nCancel   ${up ? 'below' : 'above'} $${fmt(x.invalid)}</pre>\n` +
+    `On a 15m close ${up ? 'above' : 'below'} $${fmt(x.level)}: ${esc(cryptoIdea(x.dir))}\n${chartLink(x.sym, kucoin)}`;
+};
+const triggerText = (x: { sym: string; dir: 'up' | 'down'; level: number; invalid: number; kucoin?: boolean }, close: number, volx: number) => {
+  const up = x.dir === 'up';
+  return `${up ? '🚀 LONG trigger' : '🔻 SHORT trigger'} · <b>${esc(x.sym)}</b> · daily setup\n15m close $${fmt(close)} ${up ? 'above' : 'below'} the setup level $${fmt(x.level)}${volx ? ` · volume ${volx.toFixed(1)}×` : ''}.\n` +
+    `${esc(cryptoIdea(x.dir))}\nInvalid if it closes back ${up ? 'below' : 'above'} $${fmt(x.level)}; hard stop $${fmt(x.invalid)}.\n${chartLink(x.sym, !!x.kucoin)}`;
+};
+const closedDaily = (d: Bar[], now: number) => closedBars(d, 864e5, now);
+
 async function pool<T, R>(items: T[], size: number, fn: (x: T) => Promise<R>): Promise<R[]> {
   const out: R[] = []; let i = 0;
   await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => {
@@ -151,6 +168,24 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   const freshBreaks: NonNullable<ReturnType<typeof breakCheck>>[] = [];
   const at = new Date(now).toISOString();
 
+  // daily setups: once per UTC day on the default coins + the top 40 by volume, relative strength vs BTC
+  const today = at.slice(0, 10);
+  let setups = state.setupDay === today ? (state.setups ?? []) : null;
+  const setupCards: string[] = [];
+  if (!setups) {
+    const scan = [...base, ...extra.slice(0, 40)];
+    const daily: Record<string, Bar[]> = {};
+    await pool(scan, 10, async sym => {
+      try { daily[sym] = closedDaily((await (fromKucoin.has(sym) ? kucoinCandles : getCandlesFor)(sym, '1D', 300)).bars, now); } catch { /* reported by the main loop */ }
+    });
+    const got: Setup[] = [];
+    for (const sym of scan) { const d = daily[sym]; if (!d) continue; const x = setupCheck(sym, d, sym === 'BTC' ? null : daily.BTC ?? null); if (x) got.push(x); }
+    got.sort((a, b) => b.points - a.points || a.dist - b.dist);
+    got.splice(8);
+    setups = got.map(x => ({ sym: x.sym, dir: x.dir, level: x.level, invalid: x.invalid, kucoin: fromKucoin.has(x.sym) }));
+    for (const x of got) setupCards.push(setupText(x, fromKucoin.has(x.sym)));
+  }
+
   await pool(coins, 10, async sym => {
     try {
       const fetchC = fromKucoin.has(sym) ? kucoinCandles : getCandlesFor;
@@ -163,6 +198,18 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
           found.push({ at, sym, kind: 'signal', text: strongText(s, fromKucoin.has(sym)), delivered: false });
       } else skipped.push(`${sym}: too few 1h candles`);
       bars15[sym] = m15.bars;                       // includes the forming candle (pump book exits use its latest price)
+      const su = setups!.find(x => x.sym === sym && !x.triggered);
+      if (su) {
+        const c = closedBars(m15.bars, 15 * 60e3, now), k = c.length - 1;
+        if (k > 32 && c[k].t >= Date.parse(today)) {
+          const up = su.dir === 'up', cl = c[k].c;
+          const av = c.slice(k - 32, k).reduce((s2, r) => s2 + r.v, 0) / 32, vx = av ? c[k].v / av : 0;
+          if (up ? cl > su.level * 1.003 : cl < su.level * 0.997) {
+            su.triggered = true;
+            if (!seeding) found.push({ at, sym, kind: 'break', text: triggerText(su, cl, vx), delivered: false });
+          }
+        }
+      }
       const b = breakCheck(sym, m15.bars, now, fromKucoin.has(sym) ? 6.0 : 4.0); // smaller top-list coins swing more: 6% for a fast-move alert
       if (b && !seeding) {
         const prev = state.breaks[sym];
@@ -179,6 +226,11 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   found.sort((a, b) => a.sym.localeCompare(b.sym));
 
   let delivered = false;
+  if (setupCards.length && telegramConfigured() && !dry && !seeding) {
+    const ups = setupCards.filter(t => t.startsWith('🟢')).length;
+    await sendTelegram(`🎯 <b>Crypto setups to watch · ${today}</b>\n${setupCards.length - ups} SHORT watch, ${ups} LONG watch. Heads-ups only: act only if the trigger hits.\n\n` + setupCards.join('\n\n') +
+      '\n\n<i>Pattern-based alerts, not advice. No proven edge yet.</i>', { html: true });
+  }
   if (found.length && telegramConfigured() && !dry) {
     await sendTelegram(alertMessage(found, now), { html: true }); // throws on failure: state is not saved, so the next run retries
     delivered = true;
@@ -191,6 +243,8 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
       breaks: nextBreaks,
       recent: [...found, ...state.recent].slice(0, 40),
       checked: at,
+      setupDay: today,
+      setups: setups!,
     } satisfies AlertState);
   }
   return { checkedAt: at, seeded: seeding, dry, coins: coins.length, watching: coins.join(","), topList: skippedTop ? `failed: ${skippedTop}` : extra.length, storage: store.kind, telegram: telegramConfigured(), alerts: found, labels, skipped, bars15, freshBreaks };
