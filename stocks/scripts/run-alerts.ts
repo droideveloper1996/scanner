@@ -1,6 +1,6 @@
 /* Runs the stock alert check once. Used by the GitHub Actions workflow every 5 minutes during NSE hours.
  * Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to send; alert state goes to DATA_DIR (default .data/).
- * Usage: tsx scripts/run-alerts.ts [--dry]   (market-hours gate: set FORCE=1 to run anyway)
+ * Usage: tsx scripts/run-alerts.ts [--dry]   (market-hours gate 08:45-15:40 IST, setups pre-market; set FORCE=1 to run anyway)
  * Alerts only; this never places orders. */
 import { runAlerts } from '../src/alerts.ts';
 
@@ -14,7 +14,7 @@ if (process.env.SEND_TEST) {
 const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
 const g = Object.fromEntries(p.map(x => [x.type, x.value])) as Record<string, string>;
 const mins = +g.hour * 60 + +g.minute, weekday = !['Sat', 'Sun'].includes(g.weekday);
-if (!process.env.FORCE && !(weekday && mins >= 9 * 60 + 20 && mins <= 15 * 60 + 40)) { console.log(`Outside NSE hours (${g.weekday} ${g.hour}:${g.minute} IST): nothing to do.`); process.exit(0); }
+if (!process.env.FORCE && !(weekday && mins >= 8 * 60 + 45 && mins <= 15 * 60 + 40)) { console.log(`Outside NSE hours (${g.weekday} ${g.hour}:${g.minute} IST): nothing to do.`); process.exit(0); }
 
 runAlerts({ dry }).then(r => {
   console.log(JSON.stringify(r, null, 1));

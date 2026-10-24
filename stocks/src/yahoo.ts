@@ -12,8 +12,8 @@ export class UpstreamError extends Error {
 
 type Chart = { chart?: { result?: { timestamp?: number[]; indicators?: { quote?: { open: (number | null)[]; high: (number | null)[]; low: (number | null)[]; close: (number | null)[]; volume: (number | null)[] }[] } }[]; error?: { description?: string } | null } };
 
-/** interval: '15m' | '60m'. range: '5d' | '60d'. Returns bars oldest first; the newest may still be forming. */
-export async function getBars(sym: string, interval: '15m' | '60m', range: string): Promise<Bar[]> {
+/** interval: '15m' | '60m' | '1d'. range: '5d' | '60d'. Returns bars oldest first; the newest may still be forming. */
+export async function getBars(sym: string, interval: '15m' | '60m' | '1d', range: string): Promise<Bar[]> {
   const url = `${BASE()}/v8/finance/chart/${encodeURIComponent(yahooSym(sym))}?interval=${interval}&range=${range}`;
   let r: Response;
   try { r = await fetch(url, { cache: 'no-store', headers: { 'user-agent': 'Mozilla/5.0 (scanner)' }, signal: AbortSignal.timeout(12000) }); }

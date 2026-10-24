@@ -16,6 +16,10 @@ on:
         description: 'Send one sample message to Telegram, then stop'
         type: boolean
         default: false
+      replay:
+        description: 'Replay the setup detector over past sessions (prints only), then stop'
+        type: boolean
+        default: false
       whoami:
         description: 'Print the chat ids of people who messaged the bot, then stop'
         type: boolean
@@ -32,6 +36,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Replay setups
+        if: ${{ inputs.replay }}
+        working-directory: stocks
+        run: npx -y tsx@4 scripts/replay-setups.ts 120
       - name: Find my Telegram chat id
         if: ${{ inputs.whoami && !inputs.test }}
         working-directory: stocks
@@ -39,7 +47,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
         run: npx -y tsx@4 scripts/whoami.ts
       - name: Restore alert state
-        if: ${{ !inputs.whoami }}
+        if: ${{ !inputs.whoami && !inputs.replay }}
         uses: actions/cache/restore@v4
         with:
           path: stocks/.data
@@ -56,7 +64,7 @@ jobs:
           DATA_DIR: .data
         run: npx -y tsx@4 scripts/run-alerts.ts
       - name: Run alert check
-        if: ${{ !inputs.whoami && !inputs.test }}
+        if: ${{ !inputs.whoami && !inputs.replay && !inputs.test }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
@@ -66,7 +74,7 @@ jobs:
         working-directory: stocks
         run: npx -y tsx@4 scripts/run-alerts.ts
       - name: Save alert state
-        if: ${{ !inputs.whoami }}
+        if: ${{ !inputs.whoami && !inputs.replay }}
         uses: actions/cache/save@v4
         with:
           path: stocks/.data

@@ -6,6 +6,7 @@ import { getBars, UpstreamError } from './yahoo.ts';
 import { watchList, NAMES, INDEXES } from './universe.ts';
 import { getStore } from './store.ts';
 import { sendTelegram, telegramConfigured } from './telegram.ts';
+import { setupCheck, optionIdea, type Setup } from './setups.ts';
 
 export type AlertRec = { at: string; sym: string; kind: 'signal' | 'break'; text: string; delivered: boolean };
 export type AlertState = {
@@ -13,6 +14,8 @@ export type AlertState = {
   breaks: Record<string, { dir: 'up' | 'down'; at: string }>;
   recent: AlertRec[];
   checked: string | null;
+  setupDay?: string;                                  // IST date the daily setups were last computed
+  setups?: (Pick<Setup, 'sym' | 'dir' | 'level' | 'invalid'> & { triggered?: boolean })[];
 };
 export const STATE_KEY = 'stock-alerts-state';
 const emptyState = (): AlertState => ({ last: {}, breaks: {}, recent: [], checked: null });
@@ -91,6 +94,26 @@ const breakText = (h: NonNullable<ReturnType<typeof breakCheck>>) => {
   return `${up ? '🚀' : '🔻'} ${head(h.sym)}\n${what}\n${planBlock(plan(h.dir, h.close, stop))}${link(h.sym)}`;
 };
 
+/* ---- pre-breakout setups (daily) and their triggers (15m close through the level) ---- */
+const istDate = (t: number) => new Date(t + 5.5 * 3600e3).toISOString().slice(0, 10);
+export function closedDaily(d: Bar[], now: number) {
+  const last = d[d.length - 1];
+  if (!last) return d;
+  const sameDay = istDate(last.t) === istDate(now), end = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate(), 10, 5);
+  return sameDay && now < end ? d.slice(0, -1) : d;
+}
+export const setupText = (x: Setup, now: number) => {
+  const up = x.dir === 'up';
+  return `${up ? '🟢 CALL watch' : '🔴 PUT watch'} · ${head(x.sym)}\nSetup ${x.points}/${x.max}: ${x.reasons.map(esc).join(', ')}.\n` +
+    `<pre>Now      ₹${fmt(x.close)}\nTrigger  ${up ? 'above' : 'below'} ₹${fmt(x.level)} (${x.dist.toFixed(1)}% away)\nCancel   ${up ? 'below' : 'above'} ₹${fmt(x.invalid)}</pre>\n` +
+    `On a 15m close ${up ? 'above' : 'below'} ₹${fmt(x.level)}: ${esc(optionIdea(x.sym, x.dir, x.level, now))}${link(x.sym)}`;
+};
+const triggerText = (x: { sym: string; dir: 'up' | 'down'; level: number; invalid: number }, close: number, volx: number, now: number) => {
+  const up = x.dir === 'up';
+  return `${up ? '🚀 CALL trigger' : '🔻 PUT trigger'} · ${head(x.sym)}\n15m close ₹${fmt(close)} ${up ? 'above' : 'below'} the setup level ₹${fmt(x.level)}${volx ? ` · volume ${volx.toFixed(1)}x` : ''}.\n` +
+    `${esc(optionIdea(x.sym, x.dir, close, now))}\nInvalid if it closes back ${up ? 'below' : 'above'} ₹${fmt(x.level)}; hard stop ₹${fmt(x.invalid)} on the stock.${link(x.sym)}`;
+};
+
 async function pool<T, R>(items: T[], size: number, fn: (x: T) => Promise<R>): Promise<R[]> {
   const out: R[] = []; let i = 0;
   await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => {
@@ -113,7 +136,24 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   const at = new Date(now).toISOString();
   let newest = 0;
 
-  await pool(names, 5, async sym => {
+  // daily setups: once per IST day, from closed daily bars (runs pre-market so they arrive before the open)
+  const today = istDate(now);
+  let setups = state.setupDay === today ? (state.setups ?? []) : null;
+  const setupCards: string[] = [];
+  if (!setups) {
+    const nifty = await getBars('NIFTY', '1d', '1y').then(d => closedDaily(d, now)).catch(() => null);
+    const got: Setup[] = [];
+    await pool(names, 5, async sym => {
+      try { const d = closedDaily(await getBars(sym, '1d', '1y'), now); const x = setupCheck(sym, d, nifty); if (x) got.push(x); }
+      catch { /* counted in the intraday loop */ }
+    });
+    got.sort((a, b) => b.points - a.points || a.dist - b.dist);
+    setups = got.map(x => ({ sym: x.sym, dir: x.dir, level: x.level, invalid: x.invalid }));
+    for (const x of got) setupCards.push(setupText(x, now));
+  }
+  const intraday = (now + 5.5 * 3600e3) % 864e5 >= (9 * 60 + 20) * 60e3;
+
+  if (intraday) await pool(names, 5, async sym => {
     try {
       const [h1, m15] = await Promise.all([getBars(sym, '60m', '60d'), getBars(sym, '15m', '5d')]);
       newest = Math.max(newest, m15.length ? m15[m15.length - 1].t : 0);
@@ -123,6 +163,18 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
         if (s.label.startsWith('Strong') && s.label !== state.last[sym] && !seeding)
           found.push({ at, sym, kind: 'signal', text: strongText(s), delivered: false });
       } else skipped.push(`${sym}: too few 1h candles`);
+      const su = setups!.find(x => x.sym === sym && !x.triggered);
+      if (su) {
+        const c = closedBars(m15, 15 * 60e3, now), k = c.length - 1;
+        if (k > 26 && istDate(c[k].t) === today) {
+          const up = su.dir === 'up', cl = c[k].c;
+          const av = c.slice(k - 26, k).reduce((s2, r) => s2 + r.v, 0) / 26, vx = av ? c[k].v / av : 0;
+          if (up ? cl > su.level * 1.002 : cl < su.level * 0.998) {
+            su.triggered = true;
+            if (!seeding) found.push({ at, sym, kind: 'break', text: triggerText(su, cl, vx, now), delivered: false });
+          }
+        }
+      }
       const b = breakCheck(sym, m15, now);
       if (b && !seeding) {
         const prev = state.breaks[sym];
@@ -137,8 +189,13 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   });
   found.sort((a, b) => a.sym.localeCompare(b.sym));
 
-  const stale = newest === 0 || now - newest > 45 * 60e3;   // no fresh 15m bar: holiday, or Yahoo is lagging
+  const stale = intraday && (newest === 0 || now - newest > 45 * 60e3);   // no fresh 15m bar: holiday, or Yahoo is lagging
   let delivered = false;
+  if (setupCards.length && telegramConfigured() && !dry && !stale) {
+    const ups = setupCards.filter(t => t.startsWith('🟢')).length;
+    await sendTelegram(`<b>🎯 Setups to watch · ${today}</b>\n${setupCards.length - ups} PUT watch, ${ups} CALL watch. These are heads-ups: act only if the trigger hits.\n\n` + setupCards.join('\n\n') +
+      '\n\n<i>Pattern-based alerts, not advice. Options can lose the full premium.</i>');
+  }
   if (found.length && telegramConfigured() && !dry && !stale) {
     await sendTelegram(`<b>Stock alerts · ${ist(now)}</b>\n\n` + found.map(f => f.text).join('\n\n')); // throws on failure: state is not saved, so the next run retries
     delivered = true;
@@ -151,7 +208,9 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
       breaks: nextBreaks,
       recent: [...found, ...state.recent].slice(0, 40),
       checked: at,
+      setupDay: today,
+      setups: setups!,
     } satisfies AlertState);
   }
-  return { checkedAt: at, seeded: seeding, dry, stale, stocks: names.length, storage: store.kind, telegram: telegramConfigured(), alerts: found, skipped };
+  return { checkedAt: at, setups: setups!.map(x => `${x.dir === 'up' ? 'CALL' : 'PUT'} ${x.sym} @${x.level.toFixed(2)}${x.triggered ? ' (triggered)' : ''}`), seeded: seeding, dry, stale, stocks: names.length, storage: store.kind, telegram: telegramConfigured(), alerts: found, skipped };
 }
