@@ -148,6 +148,7 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
       catch { /* counted in the intraday loop */ }
     });
     got.sort((a, b) => b.points - a.points || a.dist - b.dist);
+    got.splice(8);   // strongest 8 only: the replay found ~10 setups a day, too many to act on
     setups = got.map(x => ({ sym: x.sym, dir: x.dir, level: x.level, invalid: x.invalid }));
     for (const x of got) setupCards.push(setupText(x, now));
   }
@@ -193,7 +194,7 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   let delivered = false;
   if (setupCards.length && telegramConfigured() && !dry && !stale) {
     const ups = setupCards.filter(t => t.startsWith('🟢')).length;
-    await sendTelegram(`<b>🎯 Setups to watch · ${today}</b>\n${setupCards.length - ups} PUT watch, ${ups} CALL watch. These are heads-ups: act only if the trigger hits.\n\n` + setupCards.join('\n\n') +
+    await sendTelegram(`<b>🎯 Setups to watch · ${today}</b>\n${setupCards.length - ups} PUT watch, ${ups} CALL watch. Heads-ups only: act only if the trigger hits. Replay of the last 120 sessions: about half of triggered setups were in profit after 3 days, so treat this as a watchlist, not a signal.\n\n` + setupCards.join('\n\n') +
       '\n\n<i>Pattern-based alerts, not advice. Options can lose the full premium.</i>');
   }
   if (found.length && telegramConfigured() && !dry && !stale) {
