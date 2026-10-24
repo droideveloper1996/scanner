@@ -12,6 +12,10 @@ on:
         description: 'Run outside market hours (for a test)'
         type: boolean
         default: false
+      test:
+        description: 'Send one sample message to Telegram, then stop'
+        type: boolean
+        default: false
       whoami:
         description: 'Print the chat ids of people who messaged the bot, then stop'
         type: boolean
@@ -28,21 +32,30 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Send test message
+        if: ${{ inputs.test }}
+        working-directory: stocks
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+          TG_SOURCE: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN && 'stock bot secrets' || 'crypto bot secrets (fallback)' }}
+          SEND_TEST: '1'
+        run: npx -y tsx@4 scripts/run-alerts.ts
       - name: Find my Telegram chat id
-        if: ${{ inputs.whoami }}
+        if: ${{ inputs.whoami && !inputs.test }}
         working-directory: stocks
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
         run: npx -y tsx@4 scripts/whoami.ts
       - name: Restore alert state
-        if: ${{ !inputs.whoami }}
+        if: ${{ !inputs.whoami && !inputs.test }}
         uses: actions/cache/restore@v4
         with:
           path: stocks/.data
           key: stock-alerts-state-${{ github.run_id }}
           restore-keys: stock-alerts-state-
       - name: Run alert check
-        if: ${{ !inputs.whoami }}
+        if: ${{ !inputs.whoami && !inputs.test }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
@@ -52,7 +65,7 @@ jobs:
         working-directory: stocks
         run: npx -y tsx@4 scripts/run-alerts.ts
       - name: Save alert state
-        if: ${{ !inputs.whoami }}
+        if: ${{ !inputs.whoami && !inputs.test }}
         uses: actions/cache/save@v4
         with:
           path: stocks/.data
