@@ -46,7 +46,8 @@ function planBlock(p: Plan) {
     : [row('Now', fmt(p.entry)), row('Break', fmt(p.stop)), row('Next', fmt(p.t1) + ' / ' + fmt(p.t2))];
   return `<pre>${lines.join('\n')}</pre>` + (p.far ? '\n⚠️ Stop is more than 4% away: size down.' : '') + (p.side === 'AVOID' ? '\nAvoid buying. Short only through puts in F&amp;O.' : '');
 }
-const head = (sym: string) => `<b>${esc(sym)}</b>${NAMES[sym] && NAMES[sym] !== sym ? ' · ' + esc(NAMES[sym]) : ''}`;
+const tv = (sym: string) => `https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(sym.replace('&', '_'))}`;
+const head = (sym: string) => `<b><a href="${tv(sym)}">${esc(sym)}</a></b>${NAMES[sym] && NAMES[sym] !== sym ? ' · ' + esc(NAMES[sym]) : ''}`;
 const link = (sym: string) => INDEXES.has(sym) ? '' : `\n<a href="https://groww.in/search?q=${encodeURIComponent(sym)}">Open in Groww</a>`;
 
 /* ---- 1h signal entering Strong Buy / Strong Sell ---- */

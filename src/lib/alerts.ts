@@ -43,6 +43,8 @@ const pct = (x: number, d = 1) => `${x > 0 ? '+' : ''}${x.toFixed(d)}%`;
 const chartLink = (sym: string, kucoin: boolean) => kucoin
   ? `<a href="https://www.kucoin.com/trade/${encodeURIComponent(sym)}-USDT">Chart (KuCoin)</a>`
   : `<a href="https://crypto.com/exchange/trade/${encodeURIComponent(sym)}_USD">Chart (Crypto.com)</a>`;
+/** Coin name as a tap-to-open link to its live chart on the exchange the data came from. */
+const coinLink = (sym: string, kucoin = false) => `<a href="${kucoin ? `https://www.kucoin.com/trade/${encodeURIComponent(sym)}-USDT` : `https://crypto.com/exchange/trade/${encodeURIComponent(sym)}_USD`}">${esc(sym)}</a>`;
 /** Telegram has no tables: a <pre> block with padded columns renders as one (monospace on every app). */
 const table = (rows: (string[] | null)[]) =>
   `<pre>${rows.map(r => r ? esc(r[0].padEnd(9) + (r[1] ?? '').padEnd(13) + (r[2] ?? '')).trimEnd() : '─'.repeat(28)).join('\n')}</pre>`;
@@ -69,7 +71,7 @@ const side = (long: boolean) => (long ? '🟩 LONG' : '🟥 SHORT');
 export const strongText = (r: NonNullable<ReturnType<typeof strongCheck>>, kucoin: boolean) => {
   const buy = r.label.includes('Buy');
   const plan = !!r.stop && (buy ? r.stop < r.close : r.stop > r.close);
-  const head = `${buy ? '🟢' : '🔴'} <b>${esc(r.label.toUpperCase())} · ${esc(r.sym)}</b> · 1h${plan ? ` · ${side(buy)}` : ''}`;
+  const head = `${buy ? '🟢' : '🔴'} <b>${esc(r.label.toUpperCase())} · ${coinLink(r.sym, kucoin)}</b> · 1h${plan ? ` · ${side(buy)}` : ''}`;
   const rows: (string[] | null)[] = [['Price', `$${fmt(r.close)}`], ['Score', `${r.score > 0 ? '+' : ''}${r.score}`, `RSI ${r.rsi}`]];
   if (plan) rows.push(null, ...planRows(buy, r.close, r.stop));
   return [head, table(rows), plan ? notes(buy, r.close, r.stop, ['Stop = Supertrend line']) : '', chartLink(r.sym, kucoin)].filter(Boolean).join('\n');
@@ -102,12 +104,12 @@ export const breakText = (h: NonNullable<ReturnType<typeof breakCheck>>, kucoin:
   const rows: (string[] | null)[] = [['Price', `$${fmt(h.close)}`, `${pct(h.move)} 1h`]];
   let head: string, stop: number, extra: string[];
   if (h.kind === 'move') {
-    head = `${up ? '⚡' : '💥'} <b>FAST ${up ? 'PUMP' : 'DUMP'} · ${esc(h.sym)}</b> · 15m · ${side(up)}`;
+    head = `${up ? '⚡' : '💥'} <b>FAST ${up ? 'PUMP' : 'DUMP'} · ${coinLink(h.sym, kucoin)}</b> · 15m · ${side(up)}`;
     stop = up ? h.close - 2 * h.atr : h.close + 2 * h.atr;
     extra = [`No clean 8h ${up ? 'high' : 'low'} break: aggressive entry`, 'Stop = 2× 15m ATR'];
   } else {
     const lvl = h.level!;
-    head = `${up ? '🚀' : '🔻'} <b>${up ? 'BREAKOUT' : 'BREAKDOWN'} · ${esc(h.sym)}</b> · 15m · ${side(up)}`;
+    head = `${up ? '🚀' : '🔻'} <b>${up ? 'BREAKOUT' : 'BREAKDOWN'} · ${coinLink(h.sym, kucoin)}</b> · 15m · ${side(up)}`;
     rows.push([up ? '8h high' : '8h low', `$${fmt(lvl)}`, `${pct((h.close / lvl - 1) * 100)} past`], ['Volume', `${h.volx!.toFixed(1)}×`, '8h avg']);
     stop = lvl * (up ? 1 - STOP_PAST : 1 + STOP_PAST);
     extra = [`Or enter on a retest of $${fmt(lvl)}`, `Invalid if a 15m candle closes back ${up ? 'below' : 'above'} $${fmt(lvl)}`];
@@ -128,13 +130,13 @@ export function alertMessage(found: AlertRec[], now: number) {
 /* ---- pre-breakout setups (daily, once per UTC day) and their 15m triggers ---- */
 const setupText = (x: Setup, kucoin: boolean) => {
   const up = x.dir === 'up';
-  return `${up ? '🟢 LONG watch' : '🔴 SHORT watch'} · <b>${esc(x.sym)}</b>\nSetup ${x.points}/${x.max}: ${x.reasons.map(esc).join(', ')}.\n` +
+  return `${up ? '🟢 LONG watch' : '🔴 SHORT watch'} · <b>${coinLink(x.sym, kucoin)}</b>\nSetup ${x.points}/${x.max}: ${x.reasons.map(esc).join(', ')}.\n` +
     `<pre>Now      $${fmt(x.close)}\nTrigger  ${up ? 'above' : 'below'} $${fmt(x.level)} (${x.dist.toFixed(1)}% away)\nCancel   ${up ? 'below' : 'above'} $${fmt(x.invalid)}</pre>\n` +
     `On a 15m close ${up ? 'above' : 'below'} $${fmt(x.level)}: ${esc(cryptoIdea(x.dir))}\n${chartLink(x.sym, kucoin)}`;
 };
 const triggerText = (x: { sym: string; dir: 'up' | 'down'; level: number; invalid: number; kucoin?: boolean }, close: number, volx: number) => {
   const up = x.dir === 'up';
-  return `${up ? '🚀 LONG trigger' : '🔻 SHORT trigger'} · <b>${esc(x.sym)}</b> · daily setup\n15m close $${fmt(close)} ${up ? 'above' : 'below'} the setup level $${fmt(x.level)}${volx ? ` · volume ${volx.toFixed(1)}×` : ''}.\n` +
+  return `${up ? '🚀 LONG trigger' : '🔻 SHORT trigger'} · <b>${coinLink(x.sym, !!x.kucoin)}</b> · daily setup\n15m close $${fmt(close)} ${up ? 'above' : 'below'} the setup level $${fmt(x.level)}${volx ? ` · volume ${volx.toFixed(1)}×` : ''}.\n` +
     `${esc(cryptoIdea(x.dir))}\nInvalid if it closes back ${up ? 'below' : 'above'} $${fmt(x.level)}; hard stop $${fmt(x.invalid)}.\n${chartLink(x.sym, !!x.kucoin)}`;
 };
 const closedDaily = (d: Bar[], now: number) => closedBars(d, 864e5, now);
