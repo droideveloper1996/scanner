@@ -5,12 +5,12 @@ export const telegramConfigured = () => Boolean(process.env.TELEGRAM_BOT_TOKEN &
 
 import { getStore } from './store.ts';
 
-type Subs = { ids: number[]; offset: number };
+type Subs = { ids: number[]; offset: number; cmds?: number };
 const SUBS_KEY = 'stock-telegram-subscribers';
-const WELCOME = '✅ Subscribed to stock alerts (NSE signals + breakouts, checked every 5 min in market hours). Not investment advice. Send /stop to unsubscribe.';
+const WELCOME = '✅ Subscribed to stock alerts (NSE signals + breakouts, checked every 5 min in market hours). Send any stock name (e.g. Tata Motors) to follow it personally; /help lists the commands. Not investment advice. Send /stop to unsubscribe.';
 const BYE = 'Unsubscribed. Send /start to subscribe again.';
 
-async function tg(method: string, body: unknown) {
+export async function tg(method: string, body: unknown) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN is not set');
   const r = await fetch(`${API()}/bot${token}/${method}`, {
@@ -24,6 +24,13 @@ async function tg(method: string, body: unknown) {
 export async function syncSubscribers(): Promise<number[]> {
   const store = getStore();
   const subs = (await store.get<Subs>(SUBS_KEY)) ?? { ids: [], offset: 0 };
+  if ((subs.cmds ?? 0) < 1) {   // once: show the watchlist commands in Telegram's menu
+    const c = await tg('setMyCommands', { commands: [
+      { command: 'watch', description: 'Follow a stock: /watch Tata Motors' }, { command: 'unwatch', description: 'Stop following a stock' },
+      { command: 'list', description: 'Your stocks with today\'s stance' }, { command: 'check', description: 'One research card, no subscribe' },
+      { command: 'help', description: 'How it works' }, { command: 'stop', description: 'Stop all messages' }] }).catch(() => ({ ok: false }));
+    if (c.ok) { subs.cmds = 1; await store.set(SUBS_KEY, subs); }
+  }
   const r = await tg('getUpdates', { offset: subs.offset, timeout: 0, allowed_updates: ['message', 'my_chat_member'] });
   if (!r.ok) return subs.ids;
   const updates = (r.result as { update_id: number; message?: { chat?: { id: number }; text?: string }; my_chat_member?: { chat: { id: number }; new_chat_member?: { status?: string } } }[]) || [];
@@ -38,13 +45,37 @@ export async function syncSubscribers(): Promise<number[]> {
       continue;
     }
     const id = u.message?.chat?.id; if (!id) continue;
-    const stop = /^\/stop\b/i.test(u.message?.text || '');
+    const text = u.message?.text || '';
+    const stop = /^\/stop\b/i.test(text);
     const has = subs.ids.includes(id);
     if (stop && has) { subs.ids = subs.ids.filter(x => x !== id); await tg('sendMessage', { chat_id: id, text: BYE }); }
     else if (!stop && !has) { subs.ids.push(id); await tg('sendMessage', { chat_id: id, text: WELCOME }); }
+    // personal watchlist commands (a stock name, /watch, /unwatch, /list, /check, /help); a failure must not replay the update
+    if (!stop && text) {
+      try { const { handleMessage } = await import('./watch.ts'); await handleMessage(id, text, sendTo); }
+      catch (e) { console.error(`watch command failed: ${(e as Error).message}`); }
+      await store.set(SUBS_KEY, subs);   // save the offset now so a timeout later never answers this message twice
+    }
   }
   if (changed) await store.set(SUBS_KEY, subs);
   return subs.ids;
+}
+
+/** Splits on blank lines so no message exceeds Telegram's 4096-character limit. */
+function chunks(html: string) {
+  const parts: string[] = []; let cur = '';
+  for (const block of html.split('\n\n')) {
+    if (cur && cur.length + block.length + 2 > 3800) { parts.push(cur); cur = ''; }
+    cur += (cur ? '\n\n' : '') + block;
+  }
+  if (cur) parts.push(cur);
+  return parts;
+}
+
+/** Sends to one chat only (personal watchlist replies and digests). */
+export async function sendTo(chat: string | number, html: string): Promise<{ ok: boolean; status: number }> {
+  for (const text of chunks(html)) { const x = await tg('sendMessage', { chat_id: chat, text, parse_mode: 'HTML', disable_web_page_preview: true }); if (!x.ok) return x; }
+  return { ok: true, status: 200 };
 }
 
 /** Sends to the owner chat and every subscriber. Throws only if the owner chat fails (so the run is retried);
@@ -53,17 +84,7 @@ export async function sendTelegram(html: string): Promise<{ sent: number }> {
   const owner = process.env.TELEGRAM_CHAT_ID;
   if (!process.env.TELEGRAM_BOT_TOKEN || !owner) throw new Error('TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are not set');
   const subs = await syncSubscribers().catch(() => [] as number[]);
-  // split on blank lines so a long batch never exceeds Telegram's 4096-character limit
-  const parts: string[] = []; let cur = '';
-  for (const block of html.split('\n\n')) {
-    if (cur && cur.length + block.length + 2 > 3800) { parts.push(cur); cur = ''; }
-    cur += (cur ? '\n\n' : '') + block;
-  }
-  if (cur) parts.push(cur);
-  const send = async (chat: string | number) => {
-    for (const text of parts) { const x = await tg('sendMessage', { chat_id: chat, text, parse_mode: 'HTML', disable_web_page_preview: true }); if (!x.ok) return x; }
-    return { ok: true, status: 200 };
-  };
+  const send = (chat: string | number) => sendTo(chat, html);
   const r = await send(owner);
   if (!r.ok) throw new Error(`Telegram HTTP ${r.status}`);
   let sent = 1; const gone: number[] = [];
