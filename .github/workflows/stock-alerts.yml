@@ -21,7 +21,7 @@ on:
         type: boolean
         default: false
 concurrency:
-  group: stock-alerts
+  group: bot-state
   cancel-in-progress: false
 jobs:
   check:

@@ -1,0 +1,59 @@
+# Headline news alerts (every 10 min) and a daily summary at ~08:30 IST, for both Telegram bots. No AI, no tokens, alerts only.
+# State lives in the same Actions caches as the alert workflows (shared subscriber lists). Uses the same secrets as the two alert workflows.
+name: news-alerts
+on:
+  schedule:
+    - cron: '4-59/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      daily:
+        description: 'Send the daily summary now'
+        type: boolean
+        default: false
+concurrency:
+  group: bot-state
+  cancel-in-progress: false
+jobs:
+  news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache/restore@v4
+        with:
+          path: .data
+          key: alerts-state-${{ github.run_id }}
+          restore-keys: alerts-state-
+      - uses: actions/cache/restore@v4
+        with:
+          path: stocks/.data
+          key: stock-alerts-state-${{ github.run_id }}
+          restore-keys: stock-alerts-state-
+      - name: Crypto news
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NEWS_DAILY: ${{ inputs.daily && '1' || '' }}
+        run: npx -y tsx@4 scripts/run-news.ts
+      - name: Stock news
+        continue-on-error: true
+        working-directory: stocks
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+          NEWS_DAILY: ${{ inputs.daily && '1' || '' }}
+        run: npx -y tsx@4 scripts/run-news.ts
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .data
+          key: alerts-state-${{ github.run_id }}-news-${{ github.run_attempt }}
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: stocks/.data
+          key: stock-alerts-state-${{ github.run_id }}-news-${{ github.run_attempt }}

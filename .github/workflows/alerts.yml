@@ -18,7 +18,7 @@ on:
 permissions:
   contents: write   # commits paper/pump-book.json when the virtual pump book changes
 concurrency:
-  group: crypto-alerts
+  group: bot-state
   cancel-in-progress: false
 jobs:
   check:
