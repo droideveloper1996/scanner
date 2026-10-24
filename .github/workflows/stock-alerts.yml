@@ -20,6 +20,10 @@ on:
         description: 'Replay the setup detector over past sessions (prints only), then stop'
         type: boolean
         default: false
+      setups:
+        description: 'Send the setup watchlist for the next session now (does not change alert state)'
+        type: boolean
+        default: false
       whoami:
         description: 'Print the chat ids of people who messaged the bot, then stop'
         type: boolean
@@ -40,6 +44,14 @@ jobs:
         if: ${{ inputs.replay }}
         working-directory: stocks
         run: npx -y tsx@4 scripts/replay-setups.ts 120
+      - name: Send setup watchlist
+        if: ${{ inputs.setups }}
+        working-directory: stocks
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+          DATA_DIR: .data
+        run: npx -y tsx@4 scripts/send-setups.ts "Monday"
       - name: Find my Telegram chat id
         if: ${{ inputs.whoami && !inputs.test }}
         working-directory: stocks
@@ -47,7 +59,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
         run: npx -y tsx@4 scripts/whoami.ts
       - name: Restore alert state
-        if: ${{ !inputs.whoami && !inputs.replay }}
+        if: ${{ !inputs.whoami && !inputs.replay && !inputs.setups }}
         uses: actions/cache/restore@v4
         with:
           path: stocks/.data
@@ -64,7 +76,7 @@ jobs:
           DATA_DIR: .data
         run: npx -y tsx@4 scripts/run-alerts.ts
       - name: Run alert check
-        if: ${{ !inputs.whoami && !inputs.replay && !inputs.test }}
+        if: ${{ !inputs.whoami && !inputs.replay && !inputs.setups && !inputs.test }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
@@ -74,7 +86,7 @@ jobs:
         working-directory: stocks
         run: npx -y tsx@4 scripts/run-alerts.ts
       - name: Save alert state
-        if: ${{ !inputs.whoami && !inputs.replay }}
+        if: ${{ !inputs.whoami && !inputs.replay && !inputs.setups }}
         uses: actions/cache/save@v4
         with:
           path: stocks/.data
