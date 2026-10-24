@@ -149,9 +149,11 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
       catch { /* counted in the intraday loop */ }
     });
     got.sort((a, b) => b.points - a.points || a.dist - b.dist);
-    got.splice(8);   // strongest 8 only: the replay found ~10 setups a day, too many to act on
-    setups = got.map(x => ({ sym: x.sym, dir: x.dir, level: x.level, invalid: x.invalid }));
-    for (const x of got) setupCards.push(setupText(x, now));
+    // strongest 8 overall (the replay found ~10 a day, too many to act on) plus up to 6 more priced under ₹500
+    const top = got.slice(0, 8), cheap = got.filter(x => x.close < 500 && !top.includes(x)).slice(0, 6);
+    setups = [...top, ...cheap].map(x => ({ sym: x.sym, dir: x.dir, level: x.level, invalid: x.invalid }));
+    for (const x of top) setupCards.push(setupText(x, now));
+    if (cheap.length) setupCards.push(`<b>Under ₹500</b>\n\n` + cheap.map(x => setupText(x, now)).join('\n\n'));
   }
   const intraday = (now + 5.5 * 3600e3) % 864e5 >= (9 * 60 + 20) * 60e3;
 
@@ -194,8 +196,8 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   const stale = intraday && (newest === 0 || now - newest > 45 * 60e3);   // no fresh 15m bar: holiday, or Yahoo is lagging
   let delivered = false;
   if (setupCards.length && telegramConfigured() && !dry && !stale) {
-    const ups = setupCards.filter(t => t.startsWith('🟢')).length;
-    await sendTelegram(`<b>🎯 Setups to watch · ${today}</b>\n${setupCards.length - ups} PUT watch, ${ups} CALL watch. Heads-ups only: act only if the trigger hits. Replay of the last 120 sessions: about half of triggered setups were in profit after 3 days, so treat this as a watchlist, not a signal.\n\n` + setupCards.join('\n\n') +
+    const all = setupCards.join('\n\n'), ups = (all.match(/🟢 CALL watch/g) || []).length, downs = (all.match(/🔴 PUT watch/g) || []).length;
+    await sendTelegram(`<b>🎯 Setups to watch · ${today}</b>\n${downs} PUT watch, ${ups} CALL watch. Heads-ups only: act only if the trigger hits. Replay of the last 120 sessions: about half of triggered setups were in profit after 3 days, so treat this as a watchlist, not a signal.\n\n` + setupCards.join('\n\n') +
       '\n\n<i>Pattern-based alerts, not advice. Options can lose the full premium.</i>');
   }
   if (found.length && telegramConfigured() && !dry && !stale) {
