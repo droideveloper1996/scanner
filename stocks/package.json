@@ -1,0 +1,2 @@
+{ "name": "stock-signal-alerts", "version": "1.0.0", "private": true, "type": "module",
+  "scripts": { "alerts": "tsx scripts/run-alerts.ts", "dry": "tsx scripts/run-alerts.ts --dry", "whoami": "tsx scripts/whoami.ts" } }

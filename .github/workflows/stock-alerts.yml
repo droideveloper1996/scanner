@@ -1,0 +1,46 @@
+# Runs the stock alert check every 5 minutes during NSE hours (09:15-15:30 IST = 03:45-10:00 UTC), Monday to Friday.
+# Repo secrets: STOCK_TELEGRAM_BOT_TOKEN and STOCK_TELEGRAM_CHAT_ID (falls back to the crypto bot's TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). Optional repo variable: ALERT_STOCKS (comma separated NSE symbols).
+# Alert state (what already fired) is carried between runs in the Actions cache. Free on a public repo.
+# Minutes are offset from :00 because GitHub drops or delays more scheduled runs at the top of the hour.
+name: stock-alerts
+on:
+  schedule:
+    - cron: '2-59/5 3-10 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Run outside market hours (for a test)'
+        type: boolean
+        default: false
+concurrency:
+  group: stock-alerts
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Restore alert state
+        uses: actions/cache/restore@v4
+        with:
+          path: stocks/.data
+          key: stock-alerts-state-${{ github.run_id }}
+          restore-keys: stock-alerts-state-
+      - name: Run alert check
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+          ALERT_STOCKS: ${{ vars.ALERT_STOCKS }}
+          FORCE: ${{ inputs.force && '1' || '' }}
+          DATA_DIR: .data
+        working-directory: stocks
+        run: npx -y tsx@4 scripts/run-alerts.ts
+      - name: Save alert state
+        uses: actions/cache/save@v4
+        with:
+          path: stocks/.data
+          key: stock-alerts-state-${{ github.run_id }}-${{ github.run_attempt }}
