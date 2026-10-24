@@ -32,6 +32,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Find my Telegram chat id
+        if: ${{ inputs.whoami && !inputs.test }}
+        working-directory: stocks
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+        run: npx -y tsx@4 scripts/whoami.ts
+      - name: Restore alert state
+        if: ${{ !inputs.whoami }}
+        uses: actions/cache/restore@v4
+        with:
+          path: stocks/.data
+          key: stock-alerts-state-${{ github.run_id }}
+          restore-keys: stock-alerts-state-
       - name: Send test message
         if: ${{ inputs.test }}
         working-directory: stocks
@@ -40,20 +53,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
           TG_SOURCE: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN && 'stock bot secrets' || 'crypto bot secrets (fallback)' }}
           SEND_TEST: '1'
+          DATA_DIR: .data
         run: npx -y tsx@4 scripts/run-alerts.ts
-      - name: Find my Telegram chat id
-        if: ${{ inputs.whoami && !inputs.test }}
-        working-directory: stocks
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
-        run: npx -y tsx@4 scripts/whoami.ts
-      - name: Restore alert state
-        if: ${{ !inputs.whoami && !inputs.test }}
-        uses: actions/cache/restore@v4
-        with:
-          path: stocks/.data
-          key: stock-alerts-state-${{ github.run_id }}
-          restore-keys: stock-alerts-state-
       - name: Run alert check
         if: ${{ !inputs.whoami && !inputs.test }}
         env:
@@ -65,7 +66,7 @@ jobs:
         working-directory: stocks
         run: npx -y tsx@4 scripts/run-alerts.ts
       - name: Save alert state
-        if: ${{ !inputs.whoami && !inputs.test }}
+        if: ${{ !inputs.whoami }}
         uses: actions/cache/save@v4
         with:
           path: stocks/.data
