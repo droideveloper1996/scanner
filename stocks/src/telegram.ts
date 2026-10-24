@@ -24,12 +24,19 @@ async function tg(method: string, body: unknown) {
 export async function syncSubscribers(): Promise<number[]> {
   const store = getStore();
   const subs = (await store.get<Subs>(SUBS_KEY)) ?? { ids: [], offset: 0 };
-  const r = await tg('getUpdates', { offset: subs.offset, timeout: 0, allowed_updates: ['message'] });
+  const r = await tg('getUpdates', { offset: subs.offset, timeout: 0, allowed_updates: ['message', 'my_chat_member'] });
   if (!r.ok) return subs.ids;
-  const updates = (r.result as { update_id: number; message?: { chat?: { id: number }; text?: string } }[]) || [];
+  const updates = (r.result as { update_id: number; message?: { chat?: { id: number }; text?: string }; my_chat_member?: { chat: { id: number }; new_chat_member?: { status?: string } } }[]) || [];
   let changed = false;
   for (const u of updates) {
     subs.offset = Math.max(subs.offset, u.update_id + 1); changed = true;
+    const mc = u.my_chat_member;
+    if (mc) {   // the bot was added to (or removed from) a group or channel: subscribe or drop that chat
+      const st = mc.new_chat_member?.status || '', on = st === 'member' || st === 'administrator', has = subs.ids.includes(mc.chat.id);
+      if (on && !has) { subs.ids.push(mc.chat.id); await tg('sendMessage', { chat_id: mc.chat.id, text: WELCOME }); }
+      else if (!on && has) subs.ids = subs.ids.filter(x => x !== mc.chat.id);
+      continue;
+    }
     const id = u.message?.chat?.id; if (!id) continue;
     const stop = /^\/stop\b/i.test(u.message?.text || '');
     const has = subs.ids.includes(id);
