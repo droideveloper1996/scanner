@@ -10,7 +10,7 @@ const day = (t: number) => new Date(t + 5.5 * 3600e3).toISOString().slice(0, 10)
 const data: Record<string, Bar[]> = {};
 for (const s of ['NIFTY', ...watchList()]) { try { data[s] = await getBars(s, '1d', '2y'); } catch { /* skip */ } }
 const nifty = data.NIFTY, dates = nifty.map(b => day(b.t)).slice(-days - 3, -3);
-let n = 0, trig = 0, win = 0; const R: number[] = [];
+let n = 0, trig = 0, win = 0; const R: number[] = []; const B: Record<string, number[]> = {};
 for (const d of dates) {
   const idx = nifty.filter(b => day(b.t) < d);
   for (const s of Object.keys(data)) {
@@ -23,10 +23,12 @@ for (const d of dates) {
     trig++;
     const risk = Math.abs(x.level - x.invalid) || x.atr, after = next[2].c, r = (up ? after - x.level : x.level - after) / risk;
     R.push(r); if (r > 0) win++;
+    for (const k of [`${x.points}pts`, `${x.dir}`, `${x.points}pts-${x.dir}`, x.reasons.some(z => z.includes('52-week')) ? 'near52w' : 'not52w']) (B[k] ||= []).push(r);
   }
 }
 const avg = R.reduce((a, b) => a + b, 0) / (R.length || 1);
 console.log(`Last ${dates.length} sessions: ${n} setups, ${trig} triggered within 3 days, ${win} of those in profit after 3 days, avg ${avg.toFixed(2)}R (stock move vs stop distance, before costs).`);
+for (const [k, a] of Object.entries(B).sort()) console.log(`  ${k}: ${a.length} triggered, ${a.filter(r => r > 0).length} in profit, avg ${(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2)}R`);
 const [fs, fd] = focus.split(':');
 for (const d of [fd, ...[1, 2, 3, 4, 5].map(k => { const i = nifty.findIndex(b => day(b.t) >= fd); return nifty[i - k] ? day(nifty[i - k].t) : fd; })]) {
   const all = data[fs] || [], cut = all.filter(b => day(b.t) < d), today = all.find(b => day(b.t) === d);
