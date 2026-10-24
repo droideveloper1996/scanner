@@ -1,0 +1,64 @@
+# Sends the 07:30 IST morning briefs. The analysis routine commits briefs/crypto.html and briefs/stocks.html; this sends whichever changed.
+# Bot tokens stay in repo secrets; the routine never sees them.
+name: morning-brief
+on:
+  push:
+    paths: ['briefs/crypto.html', 'briefs/stocks.html']
+  workflow_dispatch:
+    inputs:
+      which:
+        description: 'crypto, stocks or both'
+        default: 'both'
+concurrency:
+  group: bot-state
+  cancel-in-progress: false
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache/restore@v4
+        with:
+          path: .data
+          key: alerts-state-${{ github.run_id }}
+          restore-keys: alerts-state-
+      - uses: actions/cache/restore@v4
+        with:
+          path: stocks/.data
+          key: stock-alerts-state-${{ github.run_id }}
+          restore-keys: stock-alerts-state-
+      - name: What changed
+        id: ch
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then w="${{ inputs.which }}"; else w=""; git diff --name-only HEAD^ HEAD | grep -q briefs/crypto.html && w="$w crypto"; git diff --name-only HEAD^ HEAD | grep -q briefs/stocks.html && w="$w stocks"; fi
+          [ "$w" = "both" ] && w="crypto stocks"
+          echo "which=$w" >> "$GITHUB_OUTPUT"
+      - name: Crypto brief
+        if: ${{ contains(steps.ch.outputs.which, 'crypto') }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: npx -y tsx@4 scripts/send-brief.ts crypto
+      - name: Stock brief
+        if: ${{ contains(steps.ch.outputs.which, 'stocks') }}
+        working-directory: stocks
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+        run: npx -y tsx@4 scripts/send-brief.ts
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .data
+          key: alerts-state-${{ github.run_id }}-brief-${{ github.run_attempt }}
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: stocks/.data
+          key: stock-alerts-state-${{ github.run_id }}-brief-${{ github.run_attempt }}
