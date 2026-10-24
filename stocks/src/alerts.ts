@@ -5,7 +5,8 @@ import { trueRange, wilder } from './indicators.ts';
 import { getBars, UpstreamError } from './yahoo.ts';
 import { watchList, NAMES, INDEXES } from './universe.ts';
 import { getStore } from './store.ts';
-import { sendTelegram, telegramConfigured } from './telegram.ts';
+import { sendTelegram, sendTo, telegramConfigured } from './telegram.ts';
+import { loadWatch, watchedSyms, MAX_EXTRA } from './watch.ts';
 import { setupCheck, optionIdea, type Setup } from './setups.ts';
 
 export type AlertRec = { at: string; sym: string; kind: 'signal' | 'break'; text: string; delivered: boolean };
@@ -130,6 +131,10 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   const state = (await store.get<AlertState>(STATE_KEY)) ?? emptyState();
   const seeding = state.checked == null;      // first ever run: record labels, do not flood
   const names = watchList();
+  // personal watchlist names outside the shared universe: scanned for breaks / strong signals, sent only to their watchers
+  const watch = await loadWatch().catch(() => null);
+  const extras = watch ? watchedSyms(watch).filter(s => !names.includes(s)).slice(0, MAX_EXTRA) : [];
+  for (const s of extras) if (watch?.names[s] && !NAMES[s]) NAMES[s] = watch.names[s];   // so alert cards show the company name
   const skipped: string[] = [];
   const found: AlertRec[] = [];
   const labels: Record<string, string> = {};
@@ -157,7 +162,7 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   }
   const intraday = (now + 5.5 * 3600e3) % 864e5 >= (9 * 60 + 20) * 60e3;
 
-  if (intraday) await pool(names, 5, async sym => {
+  if (intraday) await pool([...names, ...extras], 5, async sym => {
     try {
       const [h1, m15] = await Promise.all([getBars(sym, '60m', '60d'), getBars(sym, '15m', '5d')]);
       newest = Math.max(newest, m15.length ? m15[m15.length - 1].t : 0);
@@ -200,8 +205,16 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
     await sendTelegram(`<b>🎯 Setups to watch · ${today}</b>\n${downs} PUT watch, ${ups} CALL watch. Heads-ups only: act only if the trigger hits. Replay of the last 120 sessions: about half of triggered setups were in profit after 3 days, so treat this as a watchlist, not a signal.\n\n` + setupCards.join('\n\n') +
       '\n\n<i>Pattern-based alerts, not advice. Options can lose the full premium.</i>');
   }
-  if (found.length && telegramConfigured() && !dry && !stale) {
-    await sendTelegram(`<b>Stock alerts · ${ist(now)}</b>\n\n` + found.map(f => f.text).join('\n\n')); // throws on failure: state is not saved, so the next run retries
+  const shared = found.filter(f => !extras.includes(f.sym)), personal = found.filter(f => extras.includes(f.sym));
+  if (shared.length && telegramConfigured() && !dry && !stale) {
+    await sendTelegram(`<b>Stock alerts · ${ist(now)}</b>\n\n` + shared.map(f => f.text).join('\n\n')); // throws on failure: state is not saved, so the next run retries
+    delivered = true;
+  }
+  if (personal.length && watch && telegramConfigured() && !dry && !stale) {
+    for (const [id, syms] of Object.entries(watch.users)) {
+      const mine = personal.filter(f => syms.includes(f.sym));
+      if (mine.length) await sendTo(id, `<b>Your watchlist · ${ist(now)}</b>\n\n` + mine.map(f => f.text).join('\n\n')).catch(() => null);
+    }
     delivered = true;
   }
   for (const f of found) f.delivered = delivered;
@@ -216,5 +229,5 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
       setups: setups!,
     } satisfies AlertState);
   }
-  return { checkedAt: at, setups: setups!.map(x => `${x.dir === 'up' ? 'CALL' : 'PUT'} ${x.sym} @${x.level.toFixed(2)}${x.triggered ? ' (triggered)' : ''}`), seeded: seeding, dry, stale, stocks: names.length, storage: store.kind, telegram: telegramConfigured(), alerts: found, skipped };
+  return { checkedAt: at, setups: setups!.map(x => `${x.dir === 'up' ? 'CALL' : 'PUT'} ${x.sym} @${x.level.toFixed(2)}${x.triggered ? ' (triggered)' : ''}`), seeded: seeding, dry, stale, stocks: names.length + extras.length, extras, storage: store.kind, telegram: telegramConfigured(), alerts: found, skipped };
 }

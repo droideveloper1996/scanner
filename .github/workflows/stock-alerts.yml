@@ -28,6 +28,10 @@ on:
         description: 'With setups: only stocks under this price (e.g. 500); empty = all'
         type: string
         default: ''
+      digest:
+        description: 'Send every personal watchlist digest now, then stop'
+        type: boolean
+        default: false
       whoami:
         description: 'Print the chat ids of people who messaged the bot, then stop'
         type: boolean
@@ -80,8 +84,17 @@ jobs:
           SEND_TEST: '1'
           DATA_DIR: .data
         run: npx -y tsx@4 scripts/run-alerts.ts
+      - name: Send watchlist digests
+        if: ${{ inputs.digest && !inputs.test }}
+        working-directory: stocks
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+          WATCH_DIGEST: '1'
+          DATA_DIR: .data
+        run: npx -y tsx@4 scripts/run-alerts.ts
       - name: Run alert check
-        if: ${{ !inputs.whoami && !inputs.replay && !inputs.setups && !inputs.test }}
+        if: ${{ !inputs.whoami && !inputs.replay && !inputs.setups && !inputs.test && !inputs.digest }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}

@@ -76,6 +76,7 @@ export async function runNews(kind: NewsKind, send: (html: string) => Promise<un
   for (const k of Object.keys(st.seen)) if (now - st.seen[k] > 48 * 3600e3) delete st.seen[k];
   const label = kind === 'stocks' ? 'Stock news' : 'Crypto news';
   let sentAny = false;
+  const wasSeeded = st.seeded;
   if (st.seeded && fresh.length) {
     const hot = fresh.filter(i => i.score !== 0 && now - i.ts < 6 * 3600e3).sort((a, b) => Math.abs(b.score) - Math.abs(a.score)).slice(0, 6);
     if (hot.length) { await send(`<b>${label} · ${ist(now)}</b>\n\n` + hot.map(line).join('\n\n') + '\n\n<i>🟢/🔴 = headline keyword read, not advice.</i>'); sentAny = true; }
@@ -93,5 +94,5 @@ export async function runNews(kind: NewsKind, send: (html: string) => Promise<un
   }
   if (ok > 0) st.seeded = true; // first successful run only records what exists, so it never dumps old headlines
   await store.set(key, st);
-  return { feedsOk: ok, fresh: fresh.length, sent: sentAny };
+  return { feedsOk: ok, fresh: fresh.length, sent: sentAny, freshItems: wasSeeded ? fresh.filter(i => now - i.ts < 6 * 3600e3) : [] };
 }
