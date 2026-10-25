@@ -48,6 +48,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Install Claude SDK for /ask (only when the key is set)
+        working-directory: stocks
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: if [ -n "$ANTHROPIC_API_KEY" ]; then npm install --no-save --no-audit --no-fund @anthropic-ai/sdk; fi
       - name: Replay setups
         if: ${{ inputs.replay }}
         working-directory: stocks
@@ -91,6 +96,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
           WATCH_DIGEST: '1'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ASK_MODEL: ${{ vars.ASK_MODEL }}
           DATA_DIR: .data
         run: npx -y tsx@4 scripts/run-alerts.ts
       - name: Run alert check
@@ -99,6 +106,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
           ALERT_STOCKS: ${{ vars.ALERT_STOCKS }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ASK_MODEL: ${{ vars.ASK_MODEL }}
           FORCE: ${{ inputs.force && '1' || '' }}
           DATA_DIR: .data
         working-directory: stocks

@@ -24,12 +24,12 @@ export async function tg(method: string, body: unknown) {
 export async function syncSubscribers(): Promise<number[]> {
   const store = getStore();
   const subs = (await store.get<Subs>(SUBS_KEY)) ?? { ids: [], offset: 0 };
-  if ((subs.cmds ?? 0) < 1) {   // once: show the watchlist commands in Telegram's menu
+  if ((subs.cmds ?? 0) < 2) {   // once: show the watchlist commands in Telegram's menu
     const c = await tg('setMyCommands', { commands: [
-      { command: 'watch', description: 'Follow a stock: /watch Tata Motors' }, { command: 'unwatch', description: 'Stop following a stock' },
+      { command: 'ask', description: 'Ask about a stock: /ask Tata Motors: is it near support?' }, { command: 'watch', description: 'Follow a stock: /watch Tata Motors' }, { command: 'unwatch', description: 'Stop following a stock' },
       { command: 'list', description: 'Your stocks with today\'s stance' }, { command: 'check', description: 'One research card, no subscribe' },
       { command: 'help', description: 'How it works' }, { command: 'stop', description: 'Stop all messages' }] }).catch(() => ({ ok: false }));
-    if (c.ok) { subs.cmds = 1; await store.set(SUBS_KEY, subs); }
+    if (c.ok) { subs.cmds = 2; await store.set(SUBS_KEY, subs); }
   }
   const r = await tg('getUpdates', { offset: subs.offset, timeout: 0, allowed_updates: ['message', 'my_chat_member'] });
   if (!r.ok) return subs.ids;

@@ -80,7 +80,7 @@ function closedDaily(d: Bar[], now: number) {
   return istDay(last.t) === istDay(now) && now < end ? d.slice(0, -1) : d;
 }
 
-export type Advice = { sym: string; name: string; close: number; stance: string; score: number; card: string; line: string };
+export type Advice = { sym: string; name: string; close: number; stance: string; score: number; card: string; line: string; facts: string; perf: string };
 
 export async function advise(sym: string, name: string, now = Date.now(), nifty?: Bar[] | null): Promise<Advice> {
   const daily = closedDaily(await getBars(sym, '1d', '2y'), now);
@@ -138,12 +138,30 @@ export async function advise(sym: string, name: string, now = Date.now(), nifty?
     `<b>Plan:</b> ${esc(plan)}${setupLine}` +
     (news.length ? '\n' + news.map(i => `${i.score > 0 ? '🟢' : i.score < 0 ? '🔴' : '⚪'} <a href="${esc(i.link)}">${esc(i.title)}</a> <i>(${esc(i.src)})</i>`).join('\n') : '');
   const line = `${icon} <b>${esc(sym)}</b> ₹${fmt(close)} (${sgn(chg)}%) · ${stance}`;
-  return { sym, name, close, stance, score, card, line };
+  // returns over standard windows (trading days) and volume vs its 20-day average, for /ask
+  const ret = (k: number) => n >= k ? pct(close, C[n - k]) : null;
+  const perfParts = ([['1w', 5], ['1m', 21], ['3m', 63], ['6m', 126], ['1y', 248]] as [string, number][]).map(([l, k]) => { const r = ret(k); return r == null ? null : `${l} ${sgn(r)}%`; }).filter(Boolean);
+  const V = daily.map(b => b.v), v20 = V.slice(-21, -1).reduce((a, b) => a + b, 0) / 20, volx = v20 ? V[n] / v20 : 0;
+  const perf = `Returns: ${perfParts.join(' · ')}${volx ? ` · last volume ${volx.toFixed(1)}x its 20-day avg` : ''}`;
+  const facts = [
+    `Stock: ${sym} (${name}), NSE. Data: Yahoo Finance daily and hourly candles up to the last close (${istDay(daily[n].t)}).`,
+    `Last close ₹${fmt(close)} (${sgn(chg)}% that session). 52-week range ₹${fmt(lo52)}–₹${fmt(hi52)}.`,
+    perf + '.',
+    `Averages: 20-day EMA ₹${fmt(e20)}, 50-day EMA ₹${fmt(e50)}${e200 != null ? `, 200-day EMA ₹${fmt(e200)}` : ''}. RSI(14) ${R.toFixed(0)}. ATR(14) ₹${fmt(atr)} (${(atr / close * 100).toFixed(1)}% of price).`,
+    `20-day high ₹${fmt(hi20)}, 20-day low ₹${fmt(lo20)}. Floor pivots for next session: R1 ₹${fmt(R1)}, P ₹${fmt(P)}, S1 ₹${fmt(S1)}.`,
+    rs != null ? `20-day return vs Nifty 50: ${sgn(rs)} percentage points.` : 'No Nifty comparison available.',
+    `Rules-based stance: ${stance} (${sgn(score, 0)} of ${votes.length} votes: ${votes.map(v => `${v[0] > 0 ? '+' : v[0] < 0 ? '-' : '0'} ${v[1]}`).join('; ')}).`,
+    `Rules-based plan: ${plan}`,
+    su ? `Pattern setup: ${su.dir === 'up' ? 'CALL' : 'PUT'} watch ${su.points}/6 (${su.reasons.join(', ')}); trigger on a close ${su.dir === 'up' ? 'above' : 'below'} ₹${fmt(su.level)}, cancel ${su.dir === 'up' ? 'below' : 'above'} ₹${fmt(su.invalid)}.` : 'No pattern setup near a key level.',
+    news.length ? `Headlines naming it (last 36h, keyword tone): ${news.map(i => `"${i.title}" (${i.src}, ${i.score > 0 ? 'positive' : i.score < 0 ? 'negative' : 'neutral'})`).join('; ')}.` : 'No headlines naming it in the last 36 hours in the tracked feeds.',
+    'Not available: fundamentals (P/E, earnings, debt, ownership), analyst targets, F&O open interest, intraday order flow.',
+  ].join('\n');
+  return { sym, name, close, stance, score, card, line, facts, perf };
 }
 
 /* ---------- commands ---------- */
 export const HELP = '<b>Stock watchlist</b>\nSend a stock name or symbol (e.g. <code>Tata Motors</code> or <code>SWIGGY</code>) to subscribe to it. You get a research card now, a pre-market update for your list each trading day, and ⭐ alerts in market hours when one of your stocks moves 3/5/8% on the day, breaks its 20-day or 52-week high/low, or crosses its 200-day average, plus headlines that name it.\n\n' +
-  '/watch NAME · add (same as just typing it)\n/unwatch NAME · remove\n/list · your stocks with today\'s stance\n/check NAME · one card without subscribing\n/stop · stop all messages\n\n' +
+  '/watch NAME · add (same as just typing it)\n/ask NAME: question · ask about one stock (e.g. /ask Tata Motors: is it near support?)\n/unwatch NAME · remove\n/list · your stocks with today\'s stance\n/check NAME · one card without subscribing\n/stop · stop all messages\n\n' +
   `Up to ${MAX_PER_USER} stocks each. The bot reads messages every 5-10 minutes, so replies are not instant. Rules-based research from public price data and headlines, not investment advice.`;
 const NOISE = /^(hi|hello|hey|hii+|ok|okay|thanks|thank you|thx|start|yes|no|test|👍)$/i;
 
@@ -152,11 +170,12 @@ export async function handleMessage(chat: number, text: string, send: (chat: num
   const t = text.trim();
   const m = t.match(/^\/(\w+)(?:@\w+)?\s*([\s\S]*)$/);
   const cmd = m ? m[1].toLowerCase() : 'watch', arg = m ? m[2].trim() : t;
-  if (m && !['watch', 'add', 'sub', 'subscribe', 'unwatch', 'remove', 'del', 'list', 'my', 'mylist', 'check', 'advice', 'help'].includes(cmd)) return false;
+  if (m && !['watch', 'add', 'sub', 'subscribe', 'unwatch', 'remove', 'del', 'list', 'my', 'mylist', 'check', 'advice', 'help', 'ask'].includes(cmd)) return false;
   if (!m && (NOISE.test(t) || t.length < 2)) return false;
   const id = String(chat);
 
   if (cmd === 'help') { await send(chat, HELP); return true; }
+  if (cmd === 'ask') { const { handleAsk } = await import('./ask.ts'); await handleAsk(chat, arg, send); return true; }
 
   if (cmd === 'list' || cmd === 'my' || cmd === 'mylist') {
     const w = await loadWatch(), mine = w.users[id] || [];
