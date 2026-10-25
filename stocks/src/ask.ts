@@ -83,6 +83,19 @@ export async function handleAsk(chat: number, arg: string, send: (chat: number, 
     await send(chat, 'Ask about one stock, e.g. <code>/ask Tata Motors</code> or <code>/ask SWIGGY: is it near support?</code>');
     return;
   }
+  // "/ask TCS vs INFY": side by side, no LLM needed
+  const vs = arg.split(/\s+(?:vs\.?|versus)\s+/i).map(x => x.replace(/[?]+$/, '').trim()).filter(Boolean);
+  if (vs.length >= 2 && vs.length <= 4 && /\s(vs\.?|versus)\s/i.test(arg)) {
+    const rows: string[] = [];
+    for (const q of vs) {
+      const hit = await resolveSymbol(q);
+      if (!hit) { rows.push(`⚠️ "${esc(q)}" not found`); continue; }
+      try { const x = await advise(hit.sym, hit.name); rows.push(`${x.line}\n${esc(x.perf)}`); }
+      catch { rows.push(`⚠️ <b>${esc(hit.sym)}</b> · no data`); }
+    }
+    await send(chat, `<b>⚖️ Side by side</b>\n\n${rows.join('\n\n')}\n\n<i>Price data only, not advice. /ask NAME for one full card.</i>`);
+    return;
+  }
   const p = await parseAsk(arg);
   if (!p) { await send(chat, `Couldn't find a stock in "${esc(arg.slice(0, 60))}". Start with the NSE symbol or company name, e.g. <code>/ask TATAMOTORS: how has it done this year?</code>`); return; }
   let a: Advice;
