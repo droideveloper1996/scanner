@@ -142,7 +142,7 @@ export async function advise(sym: string, name: string, now = Date.now(), nifty?
 }
 
 /* ---------- commands ---------- */
-export const HELP = '<b>Stock watchlist</b>\nSend a stock name or symbol (e.g. <code>Tata Motors</code> or <code>SWIGGY</code>) to subscribe to it. You get a research card now, a pre-market update for your list each trading day, and breakout / strong-signal alerts on it.\n\n' +
+export const HELP = '<b>Stock watchlist</b>\nSend a stock name or symbol (e.g. <code>Tata Motors</code> or <code>SWIGGY</code>) to subscribe to it. You get a research card now, a pre-market update for your list each trading day, and ⭐ alerts in market hours when one of your stocks moves 3/5/8% on the day, breaks its 20-day or 52-week high/low, or crosses its 200-day average, plus headlines that name it.\n\n' +
   '/watch NAME · add (same as just typing it)\n/unwatch NAME · remove\n/list · your stocks with today\'s stance\n/check NAME · one card without subscribing\n/stop · stop all messages\n\n' +
   `Up to ${MAX_PER_USER} stocks each. The bot reads messages every 5-10 minutes, so replies are not instant. Rules-based research from public price data and headlines, not investment advice.`;
 const NOISE = /^(hi|hello|hey|hii+|ok|okay|thanks|thank you|thx|start|yes|no|test|👍)$/i;
@@ -239,4 +239,61 @@ export async function sendDigests(send: (chat: number, html: string) => Promise<
   w.digestDay = today;
   await saveWatch(w);
   return { users };
+}
+
+/* ---------- personal intraday triggers ---------- */
+type Lv = { day: string; prev: number; hi20: number; lo20: number; e200: number | null; hi52: number; lo52: number };
+type TrigState = { day: string; levels: Record<string, Lv>; fired: Record<string, string[]> };
+const TRIG_KEY = 'stock-watch-triggers';
+export const MOVE_STEPS = [3, 5, 8];   // % from the previous close; each fires once per direction per day
+
+/** Checks every watched stock against its own daily levels on the last closed 15m candle.
+ *  Triggers: day move of 3/5/8%, close through the 20-day high or low, across the 200-day average, a new 52-week high or low.
+ *  Each trigger fires once per stock per day. Returns one message per chat (only that chat's stocks). */
+export async function personalTriggers(w: WatchState, m15: Record<string, Bar[]>, now: number): Promise<Record<string, string>> {
+  const store = getStore(), today = istDay(now);
+  const st = (await store.get<TrigState>(TRIG_KEY)) ?? { day: '', levels: {}, fired: {} };
+  if (st.day !== today) { st.day = today; st.fired = {}; }
+  const lines: Record<string, string> = {};
+  for (const sym of watchedSyms(w)) {
+    const bars = m15[sym];
+    if (!bars?.length) continue;
+    let lv = st.levels[sym];
+    if (!lv || lv.day !== today) {
+      try {
+        const d = closedDaily(await getBars(sym, '1d', '2y'), now).filter(b => istDay(b.t) < today);
+        if (d.length < 25) continue;
+        const C = d.map(b => b.c), n = C.length - 1, m = d.slice(-20), y = d.slice(-250);
+        lv = { day: today, prev: C[n], hi20: Math.max(...m.map(b => b.h)), lo20: Math.min(...m.map(b => b.l)), e200: C.length >= 200 ? ema(C, 200)[n] : null, hi52: Math.max(...y.map(b => b.h)), lo52: Math.min(...y.map(b => b.l)) };
+        st.levels[sym] = lv;
+      } catch { continue; }
+    }
+    // last closed 15m candle of today only
+    const c = bars.filter(b => istDay(b.t) === today && now >= Math.min(b.t + 15 * 60e3, Date.UTC(new Date(b.t).getUTCFullYear(), new Date(b.t).getUTCMonth(), new Date(b.t).getUTCDate(), 10, 0)));
+    if (!c.length) continue;
+    const px = c[c.length - 1].c, chg = pct(px, lv.prev);
+    const fired = st.fired[sym] ?? (st.fired[sym] = []);
+    const hits: string[] = [];
+    const fire = (key: string, text: string) => { if (!fired.includes(key)) { fired.push(key); hits.push(text); } };
+    // a day move fires once at the highest step crossed; the smaller steps are marked done with it
+    const steps = MOVE_STEPS.filter(x => Math.abs(chg) >= x), dir = chg > 0 ? 'up' : 'dn';
+    if (steps.length && !fired.includes(`${dir}${steps[steps.length - 1]}`)) {
+      fired.push(...steps.map(x => `${dir}${x}`).filter(k => !fired.includes(k)));
+      hits.push(chg > 0 ? `🚀 up ${chg.toFixed(1)}% on the day (₹${fmt(px)}, prev close ₹${fmt(lv.prev)})` : `🔻 down ${(-chg).toFixed(1)}% on the day (₹${fmt(px)}, prev close ₹${fmt(lv.prev)})`);
+    }
+    if (px > lv.hi52 * 1.001) { fire('hi52', `🏔 new 52-week high: ₹${fmt(px)} above ₹${fmt(lv.hi52)}`); if (!fired.includes('hi20')) fired.push('hi20'); }
+    else if (px > lv.hi20 * 1.002) fire('hi20', `📈 broke the 20-day high ₹${fmt(lv.hi20)} (now ₹${fmt(px)})`);
+    if (px < lv.lo52 * 0.999) { fire('lo52', `🕳 new 52-week low: ₹${fmt(px)} below ₹${fmt(lv.lo52)}`); if (!fired.includes('lo20')) fired.push('lo20'); }
+    else if (px < lv.lo20 * 0.998) fire('lo20', `📉 broke the 20-day low ₹${fmt(lv.lo20)} (now ₹${fmt(px)})`);
+    if (lv.e200 != null) {
+      if (lv.prev < lv.e200 && px > lv.e200 * 1.002) fire('e200up', `↗️ crossed above the 200-day avg ₹${fmt(lv.e200)}: long-term trend turning up`);
+      if (lv.prev > lv.e200 && px < lv.e200 * 0.998) fire('e200dn', `↘️ fell below the 200-day avg ₹${fmt(lv.e200)}: long-term trend at risk`);
+    }
+    if (!hits.length) continue;
+    const block = `⭐ <b><a href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(sym.replace('&', '_'))}">${esc(sym)}</a></b>${w.names[sym] && w.names[sym] !== sym ? ' · ' + esc(w.names[sym]) : ''}\n` + hits.join('\n');
+    for (const [id, syms] of Object.entries(w.users)) if (syms.includes(sym)) lines[id] = (lines[id] ? lines[id] + '\n\n' : '') + block;
+  }
+  for (const k of Object.keys(st.levels)) if (!watchedSyms(w).includes(k)) delete st.levels[k];
+  await store.set(TRIG_KEY, st);
+  return lines;
 }

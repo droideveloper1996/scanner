@@ -6,7 +6,7 @@ import { getBars, UpstreamError } from './yahoo.ts';
 import { watchList, NAMES, INDEXES } from './universe.ts';
 import { getStore } from './store.ts';
 import { sendTelegram, sendTo, telegramConfigured } from './telegram.ts';
-import { loadWatch, watchedSyms, MAX_EXTRA } from './watch.ts';
+import { loadWatch, watchedSyms, personalTriggers, MAX_EXTRA } from './watch.ts';
 import { setupCheck, optionIdea, type Setup } from './setups.ts';
 
 export type AlertRec = { at: string; sym: string; kind: 'signal' | 'break'; text: string; delivered: boolean };
@@ -141,6 +141,8 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
   const nextBreaks = { ...state.breaks };
   const at = new Date(now).toISOString();
   let newest = 0;
+  const m15map: Record<string, Bar[]> = {};   // 15m bars of watched stocks, for the personal triggers
+  const watchedAll = watch ? watchedSyms(watch) : [];
 
   // daily setups: once per IST day, from closed daily bars (runs pre-market so they arrive before the open)
   const today = istDate(now);
@@ -166,6 +168,7 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
     try {
       const [h1, m15] = await Promise.all([getBars(sym, '60m', '60d'), getBars(sym, '15m', '5d')]);
       newest = Math.max(newest, m15.length ? m15[m15.length - 1].t : 0);
+      if (watchedAll.includes(sym)) m15map[sym] = m15;
       const s = strongCheck(sym, h1, now);
       if (s) {
         labels[sym] = s.label;
@@ -217,6 +220,15 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
     }
     delivered = true;
   }
+  // personal triggers on every watched stock (day moves, 20-day / 52-week breaks, 200-day cross), only to that stock's watchers
+  let personalSent = 0;
+  if (intraday && watch && Object.keys(m15map).length && telegramConfigured() && !dry && !stale) {
+    const msgs = await personalTriggers(watch, m15map, now).catch(e => { skipped.push(`personal triggers: ${(e as Error).message}`); return {} as Record<string, string>; });
+    for (const [id, body] of Object.entries(msgs)) {
+      const r = await sendTo(id, `<b>⭐ Your stocks · ${ist(now)}</b>\n\n${body}\n\n<i>Price triggers on stocks you follow, not advice. /check NAME for the full card.</i>`).catch(() => null);
+      if (r?.ok) personalSent++;
+    }
+  }
   for (const f of found) f.delivered = delivered;
 
   if (!dry && !stale) {
@@ -229,5 +241,5 @@ export async function runAlerts({ dry = false, now = Date.now() }: RunOptions = 
       setups: setups!,
     } satisfies AlertState);
   }
-  return { checkedAt: at, setups: setups!.map(x => `${x.dir === 'up' ? 'CALL' : 'PUT'} ${x.sym} @${x.level.toFixed(2)}${x.triggered ? ' (triggered)' : ''}`), seeded: seeding, dry, stale, stocks: names.length + extras.length, extras, storage: store.kind, telegram: telegramConfigured(), alerts: found, skipped };
+  return { checkedAt: at, setups: setups!.map(x => `${x.dir === 'up' ? 'CALL' : 'PUT'} ${x.sym} @${x.level.toFixed(2)}${x.triggered ? ' (triggered)' : ''}`), seeded: seeding, dry, stale, stocks: names.length + extras.length, extras, personalSent, storage: store.kind, telegram: telegramConfigured(), alerts: found, skipped };
 }

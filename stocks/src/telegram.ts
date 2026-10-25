@@ -52,7 +52,7 @@ export async function syncSubscribers(): Promise<number[]> {
     else if (!stop && !has) { subs.ids.push(id); await tg('sendMessage', { chat_id: id, text: WELCOME }); }
     // personal watchlist commands (a stock name, /watch, /unwatch, /list, /check, /help); a failure must not replay the update
     if (!stop && text) {
-      try { const { handleMessage } = await import('./watch.ts'); await handleMessage(id, text, sendTo); }
+      try { const { handleMessage } = await import('./watch.ts'); if (await handleMessage(id, text, sendTo)) console.log('watchlist: answered 1 message'); }
       catch (e) { console.error(`watch command failed: ${(e as Error).message}`); }
       await store.set(SUBS_KEY, subs);   // save the offset now so a timeout later never answers this message twice
     }
