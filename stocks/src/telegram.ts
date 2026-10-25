@@ -24,12 +24,12 @@ export async function tg(method: string, body: unknown) {
 export async function syncSubscribers(): Promise<number[]> {
   const store = getStore();
   const subs = (await store.get<Subs>(SUBS_KEY)) ?? { ids: [], offset: 0 };
-  if ((subs.cmds ?? 0) < 1) {   // once: show the watchlist commands in Telegram's menu
+  if ((subs.cmds ?? 0) < 2) {   // once: show the watchlist commands in Telegram's menu
     const c = await tg('setMyCommands', { commands: [
-      { command: 'watch', description: 'Follow a stock: /watch Tata Motors' }, { command: 'unwatch', description: 'Stop following a stock' },
+      { command: 'ask', description: 'Ask about a stock: /ask Tata Motors: is it near support?' }, { command: 'watch', description: 'Follow a stock: /watch Tata Motors' }, { command: 'unwatch', description: 'Stop following a stock' },
       { command: 'list', description: 'Your stocks with today\'s stance' }, { command: 'check', description: 'One research card, no subscribe' },
       { command: 'help', description: 'How it works' }, { command: 'stop', description: 'Stop all messages' }] }).catch(() => ({ ok: false }));
-    if (c.ok) { subs.cmds = 1; await store.set(SUBS_KEY, subs); }
+    if (c.ok) { subs.cmds = 2; await store.set(SUBS_KEY, subs); }
   }
   const r = await tg('getUpdates', { offset: subs.offset, timeout: 0, allowed_updates: ['message', 'my_chat_member'] });
   if (!r.ok) return subs.ids;
@@ -52,7 +52,7 @@ export async function syncSubscribers(): Promise<number[]> {
     else if (!stop && !has) { subs.ids.push(id); await tg('sendMessage', { chat_id: id, text: WELCOME }); }
     // personal watchlist commands (a stock name, /watch, /unwatch, /list, /check, /help); a failure must not replay the update
     if (!stop && text) {
-      try { const { handleMessage } = await import('./watch.ts'); await handleMessage(id, text, sendTo); }
+      try { const { handleMessage } = await import('./watch.ts'); if (await handleMessage(id, text, sendTo)) console.log('watchlist: answered 1 message'); }
       catch (e) { console.error(`watch command failed: ${(e as Error).message}`); }
       await store.set(SUBS_KEY, subs);   // save the offset now so a timeout later never answers this message twice
     }

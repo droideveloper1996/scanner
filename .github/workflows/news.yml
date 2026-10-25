@@ -22,6 +22,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Install Claude SDK for /ask (only when the key is set)
+        working-directory: stocks
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: if [ -n "$ANTHROPIC_API_KEY" ]; then npm install --no-save --no-audit --no-fund @anthropic-ai/sdk; fi
       - uses: actions/cache/restore@v4
         with:
           path: .data
@@ -46,6 +51,11 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.STOCK_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.STOCK_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
           NEWS_DAILY: ${{ inputs.daily && '1' || '' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ASK_MODEL: ${{ vars.ASK_MODEL }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
         run: npx -y tsx@4 scripts/run-news.ts
       - uses: actions/cache/save@v4
         if: always()
