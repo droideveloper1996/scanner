@@ -98,6 +98,9 @@ jobs:
           WATCH_DIGEST: '1'
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ASK_MODEL: ${{ vars.ASK_MODEL }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           DATA_DIR: .data
         run: npx -y tsx@4 scripts/run-alerts.ts
       - name: Run alert check
@@ -108,6 +111,9 @@ jobs:
           ALERT_STOCKS: ${{ vars.ALERT_STOCKS }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ASK_MODEL: ${{ vars.ASK_MODEL }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           FORCE: ${{ inputs.force && '1' || '' }}
           DATA_DIR: .data
         working-directory: stocks

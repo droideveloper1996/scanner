@@ -1,6 +1,7 @@
 /** /ask: on-demand questions about one NSE stock in the Telegram bot.
  *  "/ask Tata Motors" returns the research card plus returns. "/ask Tata Motors: is it near support?" also answers the
- *  question: with ANTHROPIC_API_KEY set, Claude answers from the same data pack only; without it, a keyword-picked section.
+ *  question: with an LLM configured (any OpenAI-compatible endpoint via LLM_BASE_URL/LLM_MODEL/LLM_API_KEY, or ANTHROPIC_API_KEY),
+ *  the model answers from the same data pack only; without one, a keyword-picked section.
  *  Research output from public prices and headlines, never advice or orders. */
 import { resolveSymbol, advise, type Advice } from './watch.ts';
 import { getStore } from './store.ts';
@@ -43,6 +44,28 @@ const SYSTEM = `You answer one question about one Indian stock for a retail inve
 Use only the facts provided in the user message. If the facts do not cover the question (for example fundamentals, analyst targets or future prices), say plainly that the bot does not have that data, and point to what the facts do show.
 Do not tell the person to buy or sell. You may explain what the rules-based stance and plan say and what would change them (levels, averages, triggers).
 Write plain text in simple English, at most 120 words, no markdown, no headings. Use the ₹ sign for prices. End with nothing extra: the bot adds its own disclaimer.`;
+
+/** Any OpenAI-compatible chat endpoint (open models on Groq, OpenRouter, Together, Cloudflare Workers AI, a self-hosted
+ *  Ollama/vLLM...). Set LLM_BASE_URL (e.g. https://api.groq.com/openai/v1), LLM_MODEL and, if the host needs one, LLM_API_KEY. */
+async function openModelAnswer(a: Advice, question: string): Promise<string | null> {
+  const base = process.env.LLM_BASE_URL, model = process.env.LLM_MODEL;
+  if (!base || !model) return null;
+  try {
+    const r = await fetch(`${base.replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(process.env.LLM_API_KEY ? { authorization: `Bearer ${process.env.LLM_API_KEY}` } : {}) },
+      body: JSON.stringify({ model, max_tokens: 400, temperature: 0.2, messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Facts:\n${a.facts}\n\nQuestion: ${question}` }] }),
+      signal: AbortSignal.timeout(45000),
+    });
+    if (!r.ok) { console.error(`ask: LLM HTTP ${r.status}`); return null; }   // never log the body or URL with keys
+    const j = (await r.json()) as { choices?: { message?: { content?: string } }[] };
+    const text = (j.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    return text || null;
+  } catch (e) {
+    console.error(`ask: LLM call failed: ${(e as Error).message}`);
+    return null;
+  }
+}
 
 /** Claude answer grounded on the data pack. Returns null when no key is configured or the call fails. */
 async function claudeAnswer(a: Advice, question: string): Promise<string | null> {
@@ -103,7 +126,7 @@ export async function handleAsk(chat: number, arg: string, send: (chat: number, 
   catch (e) { await send(chat, `${esc(p.sym)}: price data is not available right now (${esc((e as Error).message)}).`); return; }
   let answer = '';
   if (p.question) {
-    const ai = (await underLimit(chat)) ? await claudeAnswer(a, p.question) : null;
+    const ai = (await underLimit(chat)) ? (await openModelAnswer(a, p.question)) ?? (await claudeAnswer(a, p.question)) : null;
     answer = ai ? `💬 <b>${esc(p.question)}</b>\n${esc(ai)}` : '';
     if (!answer) {
       const kw = keywordAnswer(a, p.question);

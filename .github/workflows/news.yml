@@ -53,6 +53,9 @@ jobs:
           NEWS_DAILY: ${{ inputs.daily && '1' || '' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ASK_MODEL: ${{ vars.ASK_MODEL }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
         run: npx -y tsx@4 scripts/run-news.ts
       - uses: actions/cache/save@v4
         if: always()
