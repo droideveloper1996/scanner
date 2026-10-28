@@ -45,6 +45,7 @@ jobs:
         run: |
           python3 research/prebreakout/fetch_kucoin.py /tmp/kc 40
           python3 research/prebreakout/bt_prebreakout.py crypto /tmp/kc --out /tmp/pb.json
+          python3 research/prebreakout/bt_features.py crypto /tmp/kc --out /tmp/pbf.json
           python3 -c "import json;r=json.load(open('/tmp/pb.json'));print('EVENTS', json.dumps(r['events']))"
       - name: Restore alert state
         if: ${{ !inputs.replay && !inputs.prebreakout }}

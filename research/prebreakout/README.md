@@ -8,3 +8,5 @@ Same Python files as the PersonalFinance project folder `prebreakout/`. The rule
 
 Run the crypto test: Actions -> crypto-alerts -> Run workflow, tick `prebreakout`. It prints results only and sends nothing.
 This is not wired into alerts or any paper/real trading.
+
+`features.py` (PreBreakoutScanner) computes 11 pre-breakout signals (TTM squeeze, VCP, ID/NR4-7, ascending triangle, shelf, spring, pocket pivot, OBV divergence, volume dry-up, anchored-VWAP pinch, RS lead); `bt_features.py` tests each one alone. Both run in the same `prebreakout` workflow input.
