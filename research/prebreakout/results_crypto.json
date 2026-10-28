@@ -1,0 +1,6 @@
+{"kind":"crypto","source":"KuCoin daily, GitHub Actions run 40732117852 (28 Oct 2026), 33 coins with 200+ bars (14 defaults + top-40 by volume), majors from May 2021","split":"2024-10-11",
+"all_bars":{"IS":{"n":20971,"breakout_10d":18.5,"fwd10_pct":1.21},"OOS":{"n":21352,"breakout_10d":18.6,"fwd10_pct":1.02}},
+"groups":{"signal":{"IS":{"n":64,"breakout_10d":53.1,"fwd10_pct":-1.3,"trades":47,"win_pct":21.3,"avg_R":-0.467,"pf":0.4,"false_pos_pct":87.5},"OOS":{"n":47,"breakout_10d":48.9,"fwd10_pct":2.3,"trades":30,"win_pct":33.3,"avg_R":-0.098,"pf":0.85,"false_pos_pct":83.0}},
+"strong":{"IS":{"n":18,"breakout_10d":50.0,"fwd10_pct":-1.4,"trades":13,"win_pct":23.1,"avg_R":-0.223,"pf":0.67,"false_pos_pct":100.0},"OOS":{"n":14,"breakout_10d":50.0,"fwd10_pct":-0.1,"trades":9,"win_pct":22.2,"avg_R":-0.373,"pf":0.54,"false_pos_pct":85.7}},
+"baseline":{"IS":{"n":681,"breakout_10d":51.8,"fwd10_pct":2.9,"trades":451,"win_pct":28.6,"avg_R":-0.225,"pf":0.68,"false_pos_pct":89.1},"OOS":{"n":642,"breakout_10d":50.8,"fwd10_pct":2.5,"trades":422,"win_pct":37.9,"avg_R":0.071,"pf":1.12,"false_pos_pct":83.6}}},
+"recall":{"IS":{"breakouts":468,"flagged_before":44,"pct":9.4},"OOS":{"breakouts":463,"flagged_before":36,"pct":7.8}}}
