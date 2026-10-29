@@ -19,6 +19,10 @@ on:
         description: 'Replay the daily setup detector (prints only), then stop'
         type: boolean
         default: false
+      prebreakout:
+        description: 'Backtest the pre-breakout detector on ~5y of KuCoin daily candles (prints only), then stop'
+        type: boolean
+        default: false
 permissions:
   contents: write   # commits paper/pump-book.json when the virtual pump book changes
 concurrency:
@@ -27,7 +31,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,15 +40,22 @@ jobs:
       - name: Replay setups
         if: ${{ inputs.replay }}
         run: npx -y tsx@4 scripts/replay-setups.ts 120
+      - name: Pre-breakout backtest
+        if: ${{ inputs.prebreakout }}
+        run: |
+          python3 research/prebreakout/fetch_kucoin.py /tmp/kc 40
+          python3 research/prebreakout/bt_prebreakout.py crypto /tmp/kc --out /tmp/pb.json
+          python3 research/prebreakout/bt_features.py crypto /tmp/kc --out /tmp/pbf.json
+          python3 -c "import json;r=json.load(open('/tmp/pb.json'));print('EVENTS', json.dumps(r['events']))"
       - name: Restore alert state
-        if: ${{ !inputs.replay }}
+        if: ${{ !inputs.replay && !inputs.prebreakout }}
         uses: actions/cache/restore@v4
         with:
           path: .data
           key: alerts-state-${{ github.run_id }}
           restore-keys: alerts-state-
       - name: Run alert check
-        if: ${{ !inputs.replay }}
+        if: ${{ !inputs.replay && !inputs.prebreakout }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -52,13 +63,13 @@ jobs:
           DATA_DIR: .data
         run: npx -y tsx@4 scripts/run-alerts.ts ${{ inputs.test && '--test' || '' }}
       - name: Save alert state
-        if: ${{ !inputs.replay }}
+        if: ${{ !inputs.replay && !inputs.prebreakout }}
         uses: actions/cache/save@v4
         with:
           path: .data
           key: alerts-state-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Commit pump book
-        if: ${{ !inputs.replay }}
+        if: ${{ !inputs.replay && !inputs.prebreakout }}
         run: |
           git add -N paper/pump-book.json 2>/dev/null || true
           if [ -n "$(git status --porcelain paper)" ]; then
